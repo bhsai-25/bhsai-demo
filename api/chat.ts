@@ -1,9 +1,11 @@
+
 import { GoogleGenAI } from "@google/genai";
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 // This runs on the server, so process.env.API_KEY is secure
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
-export default async function handler(req, res) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
@@ -18,8 +20,11 @@ export default async function handler(req, res) {
                 contents: message,
                 config: { tools: [{ googleSearch: {} }] }
             });
-            // Send the full response object back as JSON
-            return res.status(200).json(response);
+            // CORRECTED: Extract only the necessary data into a clean JSON object.
+            return res.status(200).json({ 
+                text: response.text, 
+                candidates: response.candidates 
+            });
         }
 
         // --- Handle Streaming for Chat and Images ---
@@ -27,6 +32,9 @@ export default async function handler(req, res) {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         
+        // FIX: The `ai.models.create` method is deprecated.
+        // Use `ai.models.generateContentStream` for streaming with images,
+        // and `ai.chats.create` for streaming chat sessions.
         let stream;
         if (image) { 
              stream = await ai.models.generateContentStream({

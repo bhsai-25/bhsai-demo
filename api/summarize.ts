@@ -1,8 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
-export default async function handler(req, res) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
