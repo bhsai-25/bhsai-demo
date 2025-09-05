@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked } from 'marked';
 
 // Helper function to convert file to base64
@@ -23,6 +23,123 @@ type ChatMessage = {
     sources?: GroundingChunk[];
 };
 
+// === Reusable UI Components (Moved outside App for performance) ===
+
+const BHSLogo = ({ className }: { className?: string }) => (
+    <svg className={className} width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ strokeWidth: 1.5 }}>
+        <defs>
+            <linearGradient id="gemini-gradient-svg" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#F97721" />
+                <stop offset="25%" stopColor="#F2A93B" />
+                <stop offset="75%" stopColor="#88D7E4" />
+                <stop offset="100%" stopColor="#2D79C7" />
+            </linearGradient>
+        </defs>
+        <g className="logo-paths" stroke="currentColor">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M2 17L12 22L22 17" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M2 12L12 17L22 12" strokeLinecap="round" strokeLinejoin="round"/>
+        </g>
+    </svg>
+);
+
+const Icon = ({ path, size = 24 }: { path: string, size?: number }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d={path} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+);
+
+const TypingIndicator = () => (
+    <div className="typing-indicator">
+        <span />
+        <span />
+        <span />
+    </div>
+);
+
+const Message = React.memo(({ msg, isLastMessage, isLoading }: { msg: ChatMessage; isLastMessage: boolean; isLoading: boolean }) => {
+    const [copied, setCopied] = useState(false);
+    const handleCopy = () => {
+        navigator.clipboard.writeText(msg.text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    const showTyping = isLoading && isLastMessage && msg.role === 'model';
+    
+    // By memoizing the parsed markdown, we prevent expensive re-renders 
+    // on every stream chunk.
+    const htmlContent = useMemo(() => marked.parse(msg.text) as string, [msg.text]);
+
+    return (
+        <div className={`chat-message role-${msg.role}`}>
+            {msg.role === 'model' && <div className="message-avatar"><BHSLogo /></div>}
+            <div className="message-content-wrapper">
+                <div className="message-content">
+                    {msg.image && <img src={msg.image} alt="User upload" className="message-image" />}
+                    <div dangerouslySetInnerHTML={{ __html: htmlContent }}></div>
+                    
+                    {showTyping && <TypingIndicator />}
+
+                     {msg.sources && msg.sources.length > 0 && (
+                        <div className="message-sources">
+                            <hr />
+                            <p><strong>Sources from the web:</strong></p>
+                            <ol>{msg.sources.map((source, i) => (<li key={i}><a href={source.web.uri} target="_blank" rel="noopener noreferrer">{source.web.title || new URL(source.web.uri).hostname}</a></li>))}</ol>
+                        </div>
+                    )}
+                </div>
+                {msg.role === 'model' && msg.text && !showTyping && (
+                     <button onClick={handleCopy} className="copy-btn" aria-label="Copy message">
+                         {copied ? <Icon path="M20 6L9 17l-5-5" size={16} /> : <Icon path="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2" size={16} />}
+                     </button>
+                )}
+            </div>
+        </div>
+    );
+});
+Message.displayName = 'Message'; // Good practice for debugging with memo
+
+const InitialClassSelector = ({ onSelectClass }: { onSelectClass: (grade: number) => void }) => (
+    <div className="initial-class-selector">
+        <BHSLogo />
+        <h1 className="title-main"><span>Welcome to </span><span className="gemini-gradient-text">bhsAI</span></h1>
+        <p className="subtitle">Your academic assistant from Birla High School Mukundapur</p>
+        <p className="disclaimer-warning">Please be respectful and refrain from sending inappropriate messages.</p>
+        <h2>Please select your class to begin</h2>
+        <div className="class-grid">
+            {Array.from({ length: 7 }, (_, i) => i + 6).map(grade => (
+                <button key={grade} onClick={() => onSelectClass(grade)} className="class-button">
+                    Class {grade}
+                </button>
+            ))}
+        </div>
+        <h2 style={{ marginTop: '32px' }}>Or select an exam stream</h2>
+        <div className="class-grid" style={{ maxWidth: '350px' }}>
+            <button key="jee" onClick={() => onSelectClass(13)} className="class-button">
+                JEE
+            </button>
+            <button key="neet" onClick={() => onSelectClass(14)} className="class-button">
+                NEET
+            </button>
+        </div>
+        <p className="creator-credit">Created by Shreyansh and Aarush</p>
+    </div>
+);
+
+const ChatWelcomeScreen = ({ suggestions, onSendMessage }: { suggestions: string[], onSendMessage: (message: string) => void }) => (
+    <div className="chat-welcome-screen">
+        <h1><span className="welcome-hi">Hi, </span><span className="gemini-gradient-text">Student</span></h1>
+        <p>Your academic assistant is ready to help. What would you like to explore today?</p>
+        <div className="prompt-suggestions">
+            {suggestions?.map(p => (
+                <button key={p} className="suggestion-btn" onClick={() => onSendMessage(p)}>{p}</button>
+            ))}
+        </div>
+    </div>
+);
+
+
 const App = () => {
     // === State Management ===
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
@@ -44,7 +161,7 @@ const App = () => {
     const [image, setImage] = useState<{ file: File, preview: string } | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isSidebarOpen, setSidebarOpen] = useState(false);
-    const [isGoogleSearchEnabled, setGoogleSearchEnabled] = useState(false);
+    const [isGoogleSearchEnabled, setGoogleSearchEnabled] = useState(true);
     const [isRecording, setIsRecording] = useState(false);
     const [showScrollTop, setShowScrollTop] = useState(false);
 
@@ -64,7 +181,25 @@ const App = () => {
         9: ["What are Newton's laws of motion?", "Explain the structure of an atom.", "Discuss the features of democracy."],
         10: ["Explain chemical reactions and equations.", "What were the causes of World War I?", "Describe the process of reflection of light by spherical mirrors."],
         11: ["Explain the concept of sets in mathematics.", "What is projectile motion?", "Discuss the fundamental rights in the Indian Constitution."],
-        12: ["Explain electric charge and fields.", "Discuss the principles of inheritance and variation.", "What is the structure of a C++ program?"]
+        12: ["Explain electric charge and fields.", "Discuss the principles of inheritance and variation.", "What is the structure of a C++ program?"],
+        13: ["Solve a challenging problem on rotational mechanics.", "Explain the concept of chemical equilibrium.", "What are some important topics in calculus for JEE?"], // JEE
+        14: ["Describe the process of DNA replication.", "Explain the human endocrine system.", "What are the key concepts in organic chemistry for NEET?"] // NEET
+    };
+    
+    const getSystemInstruction = (classNum: number | null): string => {
+        if (!classNum) return '';
+        let studentType = `Class ${classNum}`;
+        let syllabusType = `NCERT syllabus for Class ${classNum}`;
+    
+        if (classNum === 13) {
+            studentType = 'JEE aspirant';
+            syllabusType = 'JEE (Mains and Advanced) syllabus';
+        } else if (classNum === 14) {
+            studentType = 'NEET aspirant';
+            syllabusType = 'NEET syllabus';
+        }
+    
+        return `You are bhsAI, a friendly, academic, and highly creative AI assistant for a ${studentType} of Birla High School Mukundapur. Your responses must be encouraging, easy to understand, and strictly tailored to the ${syllabusType}. You must decline to answer any questions that are not related to academics, are inappropriate, or are unrelated to the student's curriculum. Prioritize safety and relevance in all interactions.`;
     };
 
     // === Effects ===
@@ -169,7 +304,7 @@ const App = () => {
                 body: JSON.stringify({
                     message: messageText,
                     history: historyForApi,
-                    systemInstruction: `You are bhsAI, a friendly, academic, and highly creative AI assistant for a Class ${selectedClass} student of Birla High School Mukundapur. Your responses must be encouraging, easy to understand, and strictly tailored to the NCERT syllabus for Class ${selectedClass}. You must decline to answer any questions that are not related to academics, are inappropriate, or are unrelated to the student's curriculum. Prioritize safety and relevance in all interactions.`,
+                    systemInstruction: getSystemInstruction(selectedClass),
                     image: imagePart,
                     isGoogleSearchEnabled: useGoogleSearch,
                 }),
@@ -342,97 +477,6 @@ const App = () => {
         chatAreaRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    // === Components ===
-    const BHSLogo = ({ className }: { className?: string }) => (
-        <svg className={className} width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ stroke: 'currentColor', strokeWidth: 1.5 }}>
-            <path d="M12 2L2 7L12 12L22 7L12 2Z" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M2 17L12 22L22 17" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M2 12L12 17L22 12" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-    );
-    
-    const Icon = ({ path, size = 24 }: { path: string, size?: number }) => (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d={path} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-    );
-
-    const TypingIndicator = () => (
-        <div className="typing-indicator">
-            <span />
-            <span />
-            <span />
-        </div>
-    );
-    
-    const Message = ({ msg, index }: { msg: ChatMessage, index: number }) => {
-        const [copied, setCopied] = useState(false);
-        const handleCopy = () => {
-            navigator.clipboard.writeText(msg.text);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        };
-
-        const isLastMessage = index === currentMessages.length - 1;
-        const showTyping = isLoading && isLastMessage && msg.role === 'model';
-        const isLoadingMessage = isLoading && isLastMessage && msg.role === 'model';
-        
-        return (
-            <div className={`chat-message role-${msg.role} ${isLoadingMessage ? 'is-loading-message' : ''}`}>
-                {msg.role === 'model' && <div className="message-avatar"><BHSLogo /></div>}
-                <div className="message-content-wrapper">
-                    <div className="message-content">
-                        {msg.image && <img src={msg.image} alt="User upload" className="message-image" />}
-                        <div dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) as string }}></div>
-                        {showTyping && !msg.text && <TypingIndicator />}
-                         {msg.sources && msg.sources.length > 0 && (
-                            <div className="message-sources">
-                                <hr />
-                                <p><strong>Sources from the web:</strong></p>
-                                <ol>{msg.sources.map((source, i) => (<li key={i}><a href={source.web.uri} target="_blank" rel="noopener noreferrer">{source.web.title || new URL(source.web.uri).hostname}</a></li>))}</ol>
-                            </div>
-                        )}
-                    </div>
-                    {msg.role === 'model' && msg.text && !showTyping && (
-                         <button onClick={handleCopy} className="copy-btn" aria-label="Copy message">
-                             {copied ? <Icon path="M20 6L9 17l-5-5" size={16} /> : <Icon path="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2" size={16} />}
-                         </button>
-                    )}
-                </div>
-            </div>
-        );
-    };
-
-    const InitialClassSelector = () => (
-        <div className="initial-class-selector">
-            <BHSLogo />
-            <h1 className="title-main"><span>Welcome to </span><span className="gemini-gradient-text">bhsAI</span></h1>
-            <p className="subtitle">Your academic assistant from Birla High School Mukundapur</p>
-            <p className="disclaimer-warning">Please be respectful and refrain from sending inappropriate messages.</p>
-            <h2>Please select your class to begin</h2>
-            <div className="class-grid">
-                {Array.from({ length: 7 }, (_, i) => i + 6).map(grade => (
-                    <button key={grade} onClick={() => setSelectedClass(grade)} className="class-button">
-                        Class {grade}
-                    </button>
-                ))}
-            </div>
-            <p className="creator-credit">Created by Shreyansh and Aarush</p>
-        </div>
-    );
-    
-    const ChatWelcomeScreen = () => (
-        <div className="chat-welcome-screen">
-            <h1><span className="welcome-hi">Hi, </span><span className="gemini-gradient-text">Student</span></h1>
-            <p>Your academic assistant is ready to help. What would you like to explore today?</p>
-            <div className="prompt-suggestions">
-                {promptSuggestions[selectedClass as number]?.map(p => (
-                    <button key={p} className="suggestion-btn" onClick={() => handleSendMessage(p)}>{p}</button>
-                ))}
-            </div>
-        </div>
-    );
-
     return (
         <div className="app-container">
             <style>{`
@@ -467,11 +511,21 @@ const App = () => {
                     to { opacity: 1; transform: translateY(0); }
                 }
 
+                @keyframes subtle-glow {
+                    0%, 100% {
+                        text-shadow: none;
+                    }
+                    50% {
+                        text-shadow: 0 0 15px rgba(255, 179, 0, 0.4), 0 0 25px rgba(245, 124, 0, 0.2);
+                    }
+                }
+
                 /* === Initial Class Selector === */
                 .initial-class-selector { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; padding: 20px; gap: 16px; position: relative; }
                 .title-main { font-family: var(--font-heading); font-size: 4.5rem; font-weight: 700; }
                 .title-main .gemini-gradient-text { 
-                    font-weight: 700; 
+                    font-weight: 700;
+                    animation: subtle-glow 2.5s ease-out 0.5s 1;
                 }
                 .title-main span { font-size: inherit; font-weight: 400; }
                 .subtitle { color: var(--text-secondary); font-size: 1.1rem; }
@@ -488,11 +542,16 @@ const App = () => {
                 
                 /* === Sidebar === */
                 .sidebar-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-                .sidebar-header .logo-container { position: relative; z-index: 1; overflow: hidden; border-radius: 50%; padding: 4px; }
+                .sidebar-header .logo-container { 
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    width: 40px;
+                    height: 40px;
+                 }
                 .sidebar-title { 
                     font-family: var(--font-heading); 
                     font-size: 1.5rem; 
-                    transition: transform 0.25s ease-in-out;
                     transform-origin: left center;
                 }
                 .sidebar-school { font-size: 0.9rem; color: var(--text-secondary); }
@@ -521,28 +580,31 @@ const App = () => {
                 input:checked + .slider:before { transform: translateX(18px); }
 
                 /* === Futuristic Hover Effects === */
-                 .sidebar-header:hover .sidebar-title {
+                .sidebar-header .sidebar-title,
+                .sidebar-header svg {
+                    transition: transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1),
+                                filter 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
+                }
+                .sidebar-header .logo-paths {
+                    transition: stroke 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
+                }
+
+                .sidebar-header:hover .sidebar-title {
                     transform: scale(1.05);
-                }
-                .sidebar-header .logo-container::before {
-                    content: '';
-                    position: absolute;
-                    top: 0; left: 0; right: 0; bottom: 0;
                     background: var(--gemini-gradient);
-                    background-size: 200% 200%;
-                    z-index: -1;
-                    opacity: 0;
-                    transition: opacity 0.3s ease-in-out;
+                    -webkit-background-clip: text;
+                    background-clip: text;
+                    color: transparent;
                 }
-                .sidebar-header .logo-container:hover::before {
-                    opacity: 1;
-                    animation: gradient-flow 4s linear infinite;
+
+                .sidebar-header:hover svg {
+                    transform: scale(1.1);
+                    filter: drop-shadow(0 0 10px rgba(136, 215, 228, 0.4)); /* Subtle, techy glow */
                 }
-                .sidebar-header .logo-container:hover svg {
-                    stroke: white;
-                    transition: stroke 0.3s ease;
+
+                .sidebar-header:hover .logo-paths {
+                    stroke: url(#gemini-gradient-svg);
                 }
-                [data-theme='dark'] .sidebar-header .logo-container:hover svg { stroke: var(--bg-primary); }
 
                 .class-button::before, .sidebar-btn::before {
                     content: '';
@@ -573,7 +635,6 @@ const App = () => {
                 .menu-btn { background: none; border: none; color: var(--text-primary); cursor: pointer; padding: 8px; }
                 .chat-area { flex: 1; overflow-y: auto; padding: 24px 40px; position: relative; }
                 .chat-message { display: flex; gap: 16px; margin-bottom: 24px; width: 100%; animation: fadeIn 0.3s ease-out forwards; }
-                .chat-message.is-loading-message { animation: none; }
                 .role-model { max-width: 80%; }
                 .role-user { justify-content: flex-end; }
                 .message-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--bg-tertiary); display: flex; justify-content: center; align-items: center; font-weight: bold; flex-shrink: 0; align-self: flex-start; }
@@ -604,20 +665,28 @@ const App = () => {
                 .chat-welcome-screen .prompt-suggestions { margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; max-width: 700px; }
                 
                 /* Typing Indicator */
-                @keyframes typing-fade {
-                    0%, 100% { opacity: 0.4; }
-                    50% { opacity: 1; }
+                @keyframes typing-jump {
+                    0%, 80%, 100% {
+                        transform: translateY(0);
+                    }
+                    40% {
+                        transform: translateY(-6px);
+                    }
                 }
                 .typing-indicator { display: flex; align-items: center; padding: 12px 0; }
                 .typing-indicator span {
-                    height: 10px; width: 10px; margin: 0 2px;
+                    height: 10px;
+                    width: 10px;
+                    margin: 0 3px;
                     background-color: var(--text-secondary);
-                    border-radius: 50%; display: inline-block;
-                    animation: typing-fade 1.5s infinite ease-in-out;
+                    border-radius: 50%;
+                    display: inline-block;
+                    animation: typing-jump 1.4s infinite ease-in-out;
                 }
-                .typing-indicator span:nth-of-type(1) { animation-delay: -0.3s; }
-                .typing-indicator span:nth-of-type(2) { animation-delay: -0.15s; }
+                .typing-indicator span:nth-of-type(1) { animation-delay: -0.28s; }
+                .typing-indicator span:nth-of-type(2) { animation-delay: -0.14s; }
                 .typing-indicator span:nth-of-type(3) { animation-delay: 0s; }
+
 
                 /* === Input Area === */
                 .input-area-container { padding: 12px 40px 24px; background-color: var(--bg-primary); border-top: 1px solid var(--border-color); position: relative; }
@@ -699,7 +768,7 @@ const App = () => {
                     <div className="logo-container"><BHSLogo /></div>
                     <div>
                         <h1 className="sidebar-title">bhsAI</h1>
-                        <p className="sidebar-school">Birla High School</p>
+                        <p className="sidebar-school">#ForBHSM, From BHSM, By BHSM!</p>
                     </div>
                 </div>
                 <div className="sidebar-content">
@@ -749,10 +818,17 @@ const App = () => {
                 </div>
 
                 <div className="chat-area" ref={chatAreaRef}>
-                    {selectedClass === null ? <InitialClassSelector /> :
-                     currentMessages.length === 0 ? <ChatWelcomeScreen /> :
+                    {selectedClass === null ? <InitialClassSelector onSelectClass={setSelectedClass} /> :
+                     currentMessages.length === 0 ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
                         (<>
-                            {currentMessages.map((msg, index) => <Message key={index} msg={msg} index={index}/>)}
+                            {currentMessages.map((msg, index) => (
+                                <Message 
+                                    key={index} 
+                                    msg={msg} 
+                                    isLastMessage={index === currentMessages.length - 1}
+                                    isLoading={isLoading}
+                                />
+                            ))}
                             <div ref={chatEndRef} />
                         </>
                     )}
