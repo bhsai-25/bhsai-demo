@@ -383,7 +383,8 @@ const App = () => {
                 <div className="message-content-wrapper">
                     <div className="message-content">
                         {msg.image && <img src={msg.image} alt="User upload" className="message-image" />}
-                        {showTyping && !msg.text ? <TypingIndicator /> : <div dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) as string }}></div>}
+                        <div dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) as string }}></div>
+                        {showTyping && !msg.text && <TypingIndicator />}
                          {msg.sources && msg.sources.length > 0 && (
                             <div className="message-sources">
                                 <hr />
@@ -462,7 +463,7 @@ const App = () => {
                 }
 
                 @keyframes fadeIn {
-                    from { opacity: 0; transform: translateY(10px); }
+                    from { opacity: 0; transform: translateY(8px); }
                     to { opacity: 1; transform: translateY(0); }
                 }
 
@@ -571,7 +572,7 @@ const App = () => {
                 .chat-header { display: none; padding: 12px; border-bottom: 1px solid var(--border-color); align-items: center; gap: 12px;}
                 .menu-btn { background: none; border: none; color: var(--text-primary); cursor: pointer; padding: 8px; }
                 .chat-area { flex: 1; overflow-y: auto; padding: 24px 40px; position: relative; }
-                .chat-message { display: flex; gap: 16px; margin-bottom: 24px; width: 100%; animation: fadeIn 0.4s ease forwards; }
+                .chat-message { display: flex; gap: 16px; margin-bottom: 24px; width: 100%; animation: fadeIn 0.3s ease-out forwards; }
                 .chat-message.is-loading-message { animation: none; }
                 .role-model { max-width: 80%; }
                 .role-user { justify-content: flex-end; }
@@ -603,19 +604,20 @@ const App = () => {
                 .chat-welcome-screen .prompt-suggestions { margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; max-width: 700px; }
                 
                 /* Typing Indicator */
+                @keyframes typing-fade {
+                    0%, 100% { opacity: 0.4; }
+                    50% { opacity: 1; }
+                }
                 .typing-indicator { display: flex; align-items: center; padding: 12px 0; }
                 .typing-indicator span {
                     height: 10px; width: 10px; margin: 0 2px;
                     background-color: var(--text-secondary);
                     border-radius: 50%; display: inline-block;
-                    animation: typing-pulse 1.4s infinite ease-in-out both;
+                    animation: typing-fade 1.5s infinite ease-in-out;
                 }
-                .typing-indicator span:nth-of-type(1) { animation-delay: -0.32s; }
-                .typing-indicator span:nth-of-type(2) { animation-delay: -0.16s; }
-                @keyframes typing-pulse {
-                    0%, 80%, 100% { transform: scale(0.5); opacity: 0.5; }
-                    40% { transform: scale(1.0); opacity: 1; }
-                }
+                .typing-indicator span:nth-of-type(1) { animation-delay: -0.3s; }
+                .typing-indicator span:nth-of-type(2) { animation-delay: -0.15s; }
+                .typing-indicator span:nth-of-type(3) { animation-delay: 0s; }
 
                 /* === Input Area === */
                 .input-area-container { padding: 12px 40px 24px; background-color: var(--bg-primary); border-top: 1px solid var(--border-color); position: relative; }
