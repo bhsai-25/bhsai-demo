@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked } from 'marked';
 
@@ -22,6 +23,17 @@ type ChatMessage = {
     image?: string;
     sources?: GroundingChunk[];
 };
+type Chat = {
+    title: string;
+    messages: ChatMessage[];
+};
+type QuizQuestion = {
+    question: string;
+    options: string[];
+    correctAnswerIndex: number;
+    explanation: string;
+};
+
 
 // === Reusable UI Components (Moved outside App for performance) ===
 
@@ -139,6 +151,67 @@ const ChatWelcomeScreen = ({ suggestions, onSendMessage }: { suggestions: string
     </div>
 );
 
+const QuizModal = ({ onStart, onCancel, topic, setTopic }: { onStart: (e: React.FormEvent) => void, onCancel: () => void, topic: string, setTopic: (t: string) => void }) => (
+    <div className="modal-overlay">
+        <div className="modal-content">
+            <h2>Start a Quiz</h2>
+            <p>Enter a topic for your quiz based on your current class syllabus.</p>
+            <form onSubmit={onStart}>
+                <input
+                    type="text"
+                    className="modal-input"
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="e.g., Newton's Laws of Motion"
+                    aria-label="Quiz topic"
+                    autoFocus
+                />
+                <div className="modal-buttons">
+                    <button type="button" className="modal-btn cancel" onClick={onCancel}>Cancel</button>
+                    <button type="submit" className="modal-btn submit" disabled={!topic.trim()}>Start Quiz</button>
+                </div>
+            </form>
+        </div>
+    </div>
+);
+
+const QuizView = ({ question, onAnswerSelect, selectedAnswer }: { question: QuizQuestion; onAnswerSelect: (index: number) => void; selectedAnswer: number | null }) => {
+    const hasAnswered = selectedAnswer !== null;
+    return (
+        <div className="quiz-view">
+            <div className="chat-message role-model" style={{ maxWidth: '100%' }}>
+                <div className="message-avatar"><BHSLogo /></div>
+                <div className="message-content-wrapper">
+                    <div className="message-content">
+                        <div dangerouslySetInnerHTML={{ __html: marked.parse(question.question) as string }} />
+                    </div>
+                </div>
+            </div>
+            <div className="quiz-options">
+                {question.options.map((option, index) => {
+                    let buttonClass = 'quiz-option-btn';
+                    if (hasAnswered) {
+                        if (index === question.correctAnswerIndex) {
+                            buttonClass += ' correct';
+                        } else if (index === selectedAnswer) {
+                            buttonClass += ' incorrect';
+                        }
+                    }
+                    return (
+                        <button key={index} className={buttonClass} onClick={() => onAnswerSelect(index)} disabled={hasAnswered}>
+                            {option}
+                        </button>
+                    );
+                })}
+            </div>
+            {hasAnswered && (
+                <div className="quiz-explanation" dangerouslySetInnerHTML={{ __html: marked.parse(`**Explanation:** ${question.explanation}`) as string }}>
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 const App = () => {
     // === State Management ===
@@ -148,10 +221,33 @@ const App = () => {
         return savedClass ? parseInt(savedClass, 10) : null;
     });
     
-    const [chatHistories, setChatHistories] = useState<{ [classNum: number]: { [chatId: string]: ChatMessage[] } }>(() => {
+    const [chatHistories, setChatHistories] = useState<{ [classNum: number]: { [chatId: string]: Chat } }>(() => {
         const saved = localStorage.getItem('chatHistories');
-        return saved ? JSON.parse(saved) : {};
+        if (!saved) return {};
+        const parsed = JSON.parse(saved);
+
+        // Migration logic: check if the data is in the old format and convert it.
+        const firstClassKey = Object.keys(parsed)[0];
+        if (firstClassKey) {
+            const firstChatIdKey = Object.keys(parsed[firstClassKey])[0];
+            if (firstChatIdKey && Array.isArray(parsed[firstClassKey][firstChatIdKey])) {
+                const migratedHistories: { [classNum: number]: { [chatId: string]: Chat } } = {};
+                for (const classNum in parsed) {
+                    migratedHistories[classNum] = {};
+                    for (const chatId in parsed[classNum]) {
+                        migratedHistories[classNum][chatId] = {
+                            title: '',
+                            messages: parsed[classNum][chatId]
+                        };
+                    }
+                }
+                localStorage.setItem('chatHistories', JSON.stringify(migratedHistories));
+                return migratedHistories;
+            }
+        }
+        return parsed;
     });
+
     const [activeChatIds, setActiveChatIds] = useState<{ [classNum: number]: string }>(() => {
         const saved = localStorage.getItem('activeChatIds');
         return saved ? JSON.parse(saved) : {};
@@ -164,6 +260,16 @@ const App = () => {
     const [isGoogleSearchEnabled, setGoogleSearchEnabled] = useState(true);
     const [isRecording, setIsRecording] = useState(false);
     const [showScrollTop, setShowScrollTop] = useState(false);
+    
+    // Quiz State
+    const [showQuizModal, setShowQuizModal] = useState(false);
+    const [quizTopic, setQuizTopic] = useState('');
+    const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+    const [userAnswers, setUserAnswers] = useState<(number | null)[]>([]);
+    const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+    const [isQuizModeActive, setIsQuizModeActive] = useState(false);
+
 
     const chatEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -171,7 +277,9 @@ const App = () => {
     const chatAreaRef = useRef<HTMLDivElement>(null);
 
     const activeChatId = selectedClass ? activeChatIds[selectedClass] : null;
-    const currentMessages = (selectedClass && activeChatId && chatHistories[selectedClass]?.[activeChatId]) || [];
+    const currentChat = (selectedClass && activeChatId && chatHistories[selectedClass]?.[activeChatId]);
+    const currentMessages = currentChat?.messages || [];
+
 
     // === Data ===
     const promptSuggestions: { [key: number]: string[] } = {
@@ -199,7 +307,7 @@ const App = () => {
             syllabusType = 'NEET syllabus';
         }
     
-        return `You are bhsAI, a friendly, academic, and highly creative AI assistant for a ${studentType} of Birla High School Mukundapur. Your responses must be encouraging, easy to understand, and strictly tailored to the ${syllabusType}. You must decline to answer any questions that are not related to academics, are inappropriate, or are unrelated to the student's curriculum. Prioritize safety and relevance in all interactions.`;
+        return `You are bhsAI, an expert academic AI assistant for a ${studentType} from Birla High School Mukundapur. Your sole purpose is to provide accurate, strictly academic, and informational answers based on the ${syllabusType}. You must politely decline any request that is not related to school subjects, competitive exams, or educational topics. This includes refusing to engage in casual conversation, jokes, or any non-academic activities. Your responses must be factual, encouraging, and easy to understand. Prioritize safety, accuracy, and relevance in all interactions.`;
     };
 
     // === Effects ===
@@ -232,7 +340,7 @@ const App = () => {
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [currentMessages]);
+    }, [currentMessages, currentQuestionIndex]);
     
     useEffect(() => {
         const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -269,20 +377,51 @@ const App = () => {
     }, [selectedClass, activeChatId]); // Re-attach listener if chat view changes
 
     // === Core Logic ===
+    const generateTitleForChat = async (classNum: number, chatId: string, messages: ChatMessage[]) => {
+        try {
+            const conversation = messages.slice(0, 2).map(m => `${m.role}: ${m.text}`).join('\n');
+            const res = await fetch('/api/title', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ conversation }),
+            });
+            if (res.ok) {
+                const { title } = await res.json();
+                if (title) {
+                    setChatHistories(prev => {
+                        const newHistories = { ...prev };
+                        if (newHistories[classNum]?.[chatId]) {
+                            newHistories[classNum][chatId].title = title;
+                        }
+                        return newHistories;
+                    });
+                }
+            }
+        } catch (e) {
+            console.error("Failed to generate chat title:", e);
+        }
+    };
+    
     const handleSendMessage = async (messageText: string) => {
         if ((!messageText.trim() && !image) || isLoading || !selectedClass || !activeChatId) return;
     
         const userMessage: ChatMessage = { role: 'user', text: messageText };
         if (image) userMessage.image = image.preview;
     
-        const currentChatHistory = chatHistories[selectedClass]?.[activeChatId] || [];
-        setChatHistories(prev => ({
-            ...prev,
-            [selectedClass]: {
-                ...prev[selectedClass],
-                [activeChatId]: [...currentChatHistory, userMessage, { role: 'model', text: '' }]
-            }
-        }));
+        const currentChatHistory = chatHistories[selectedClass]?.[activeChatId]?.messages || [];
+        setChatHistories(prev => {
+            const currentChatState = prev[selectedClass]?.[activeChatId] || { title: '', messages: [] };
+            return {
+                ...prev,
+                [selectedClass]: {
+                    ...prev[selectedClass],
+                    [activeChatId]: {
+                        ...currentChatState,
+                        messages: [...currentChatState.messages, userMessage, { role: 'model', text: '' }]
+                    }
+                }
+            };
+        });
     
         setIsLoading(true);
         setInput('');
@@ -339,6 +478,17 @@ const App = () => {
             updateLastMessage({ role: 'model', text: `Sorry, something went wrong. ${(error as Error).message}` });
         } finally {
             setIsLoading(false);
+            // After the first exchange in a new chat, generate a title
+            if (selectedClass && activeChatId) {
+                // We access the state directly from the setter to get the most up-to-date value
+                setChatHistories(prev => {
+                    const finalChat = prev[selectedClass]?.[activeChatId];
+                    if (finalChat && finalChat.messages.length === 2 && !finalChat.title) {
+                        generateTitleForChat(selectedClass, activeChatId, finalChat.messages);
+                    }
+                    return prev;
+                });
+            }
         }
     };
 
@@ -347,17 +497,34 @@ const App = () => {
         setChatHistories(prev => {
             const newHistories = { ...prev };
             const classHistory = newHistories[selectedClass];
-            if (classHistory && classHistory[activeChatId]) {
-                const currentChatHistory = [...classHistory[activeChatId]];
-                if (currentChatHistory.length > 0 && currentChatHistory[currentChatHistory.length - 1].role === 'model') {
-                    currentChatHistory[currentChatHistory.length - 1] = newMessage;
+            if (classHistory?.[activeChatId]) {
+                const currentMessages = [...classHistory[activeChatId].messages];
+                if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'model') {
+                    currentMessages[currentMessages.length - 1] = newMessage;
                 } else {
-                     currentChatHistory.push(newMessage);
+                     currentMessages.push(newMessage);
                 }
-                classHistory[activeChatId] = currentChatHistory;
+                classHistory[activeChatId].messages = currentMessages;
                 return { ...prev, [selectedClass]: { ...classHistory } };
             }
             return prev;
+        });
+    };
+
+    const addNewMessage = (newMessage: ChatMessage) => {
+        if (!selectedClass || !activeChatId) return;
+        setChatHistories(prev => {
+            const currentChatState = prev[selectedClass]?.[activeChatId] || { title: '', messages: [] };
+            return {
+                ...prev,
+                [selectedClass]: {
+                    ...prev[selectedClass],
+                    [activeChatId]: {
+                        ...currentChatState,
+                        messages: [...currentChatState.messages, newMessage]
+                    }
+                }
+            };
         });
     };
     
@@ -370,7 +537,7 @@ const App = () => {
             ...prev,
             [targetClass]: {
                 ...(prev[targetClass] || {}),
-                [newChatId]: []
+                [newChatId]: { title: '', messages: [] }
             }
         }));
         setActiveChatIds(prev => ({ ...prev, [targetClass]: newChatId }));
@@ -378,6 +545,8 @@ const App = () => {
 
     const handleSelectChat = (chatId: string) => {
         if (!selectedClass) return;
+        setIsQuizModeActive(false); // Exit quiz mode when switching chats
+        setQuizQuestions([]);
         setActiveChatIds(prev => ({ ...prev, [selectedClass]: chatId }));
     };
 
@@ -406,13 +575,7 @@ const App = () => {
         setIsLoading(true);
         const conversation = currentMessages.map(m => `${m.role === 'user' ? 'Student' : 'Assistant'}: ${m.text}`).join('\n');
         
-        setChatHistories(prev => ({
-            ...prev,
-            [selectedClass]: {
-                ...prev[selectedClass],
-                [activeChatId]: [...(prev[selectedClass]?.[activeChatId] || []), { role: 'model', text: '' }]
-            }
-        }));
+        addNewMessage({ role: 'model', text: '' });
         
         try {
             const response = await fetch('/api/summarize', {
@@ -477,6 +640,88 @@ const App = () => {
         chatAreaRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
+    // === Quiz Logic ===
+    const handleStartQuiz = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!quizTopic.trim() || !selectedClass) return;
+
+        setIsLoading(true);
+        setShowQuizModal(false);
+        addNewMessage({ role: 'user', text: `Start a quiz on: ${quizTopic}` });
+        addNewMessage({ role: 'model', text: '' }); // Placeholder for loading
+        
+        try {
+            const response = await fetch('/api/quiz', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    topic: quizTopic,
+                    systemInstruction: getSystemInstruction(selectedClass),
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to generate quiz.');
+            }
+
+            const data = await response.json();
+            if (!data.quiz || data.quiz.length === 0) {
+                 throw new Error('The AI could not generate a quiz for this topic.');
+            }
+
+            updateLastMessage({ role: 'model', text: "Great! Let's test your knowledge. Here is the first question." });
+            setQuizQuestions(data.quiz);
+            setUserAnswers(new Array(data.quiz.length).fill(null));
+            setCurrentQuestionIndex(0);
+            setSelectedAnswer(null);
+            setIsQuizModeActive(true);
+
+        } catch (error) {
+            console.error("Quiz generation failed:", error);
+            updateLastMessage({ role: 'model', text: `Sorry, I couldn't create a quiz for that topic. ${(error as Error).message}` });
+        } finally {
+            setQuizTopic('');
+            setIsLoading(false);
+        }
+    };
+    
+    const handleAnswerSelect = (selectedIndex: number) => {
+        setSelectedAnswer(selectedIndex);
+        const newAnswers = [...userAnswers];
+        newAnswers[currentQuestionIndex] = selectedIndex;
+        setUserAnswers(newAnswers);
+
+        setTimeout(() => {
+            if (currentQuestionIndex < quizQuestions.length - 1) {
+                setCurrentQuestionIndex(prev => prev + 1);
+                setSelectedAnswer(null);
+            } else {
+                handleEndQuiz(newAnswers);
+            }
+        }, 2500); // Wait 2.5s to show feedback before moving on
+    };
+
+    const handleEndQuiz = (finalAnswers: (number | null)[]) => {
+        let score = 0;
+        quizQuestions.forEach((q, i) => {
+            if (q.correctAnswerIndex === finalAnswers[i]) {
+                score++;
+            }
+        });
+
+        const scoreMessage = `## Quiz Complete!\n\n**Your final score is: ${score} out of ${quizQuestions.length}**\n\nKeep up the great work! If you want to try another quiz, just click "Start Quiz" again.`;
+        addNewMessage({ role: 'model', text: scoreMessage });
+
+        // Reset quiz state
+        setIsQuizModeActive(false);
+        setQuizQuestions([]);
+        setUserAnswers([]);
+        setCurrentQuestionIndex(0);
+        setSelectedAnswer(null);
+    };
+
+
     return (
         <div className="app-container">
             <style>{`
@@ -489,22 +734,18 @@ const App = () => {
                     --font-heading: 'Google Sans', sans-serif; --font-body: 'Inter', sans-serif;
                     --shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
                     --gemini-gradient: linear-gradient(90deg, #F97721, #F2A93B, #88D7E4, #2D79C7);
+                    --correct-color: #2e7d32; --incorrect-color: #c62828;
                 }
                 [data-theme='dark'] {
                     --bg-primary: #121212; --bg-secondary: #1e1e1e; --bg-tertiary: #2a2a2a;
                     --text-primary: #e0e0e0; --text-secondary: #aaaaaa;
                     --accent-primary: #ffffff; --accent-secondary: #cccccc;
                     --border-color: #333333;
+                    --correct-color: #66bb6a; --incorrect-color: #ef5350;
                 }
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 body { background-color: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); transition: background-color 0.3s, color 0.3s; overflow: hidden; }
                 .gemini-gradient-text { background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
-
-                @keyframes gradient-flow {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
-                }
 
                 @keyframes fadeIn {
                     from { opacity: 0; transform: translateY(8px); }
@@ -512,21 +753,14 @@ const App = () => {
                 }
 
                 @keyframes subtle-glow {
-                    0%, 100% {
-                        text-shadow: none;
-                    }
-                    50% {
-                        text-shadow: 0 0 15px rgba(255, 179, 0, 0.4), 0 0 25px rgba(245, 124, 0, 0.2);
-                    }
+                    0%, 100% { text-shadow: none; }
+                    50% { text-shadow: 0 0 15px rgba(255, 179, 0, 0.4), 0 0 25px rgba(245, 124, 0, 0.2); }
                 }
 
                 /* === Initial Class Selector === */
                 .initial-class-selector { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; padding: 20px; gap: 16px; position: relative; }
                 .title-main { font-family: var(--font-heading); font-size: 4.5rem; font-weight: 700; }
-                .title-main .gemini-gradient-text { 
-                    font-weight: 700;
-                    animation: subtle-glow 2.5s ease-out 0.5s 1;
-                }
+                .title-main .gemini-gradient-text { font-weight: 700; animation: subtle-glow 2.5s ease-out 0.5s 1; }
                 .title-main span { font-size: inherit; font-weight: 400; }
                 .subtitle { color: var(--text-secondary); font-size: 1.1rem; }
                 .disclaimer-warning { font-family: var(--font-body); font-size: 0.8rem; color: var(--text-secondary); max-width: 400px; margin-top: -8px; line-height: 1.4; }
@@ -542,23 +776,11 @@ const App = () => {
                 
                 /* === Sidebar === */
                 .sidebar-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-                .sidebar-header .logo-container { 
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    width: 40px;
-                    height: 40px;
-                 }
-                .sidebar-title { 
-                    font-family: var(--font-heading); 
-                    font-size: 1.5rem; 
-                    transform-origin: left center;
-                }
+                .sidebar-header .logo-container { display: flex; justify-content: center; align-items: center; width: 40px; height: 40px; }
+                .sidebar-title { font-family: var(--font-heading); font-size: 1.5rem; transform-origin: left center; }
                 .sidebar-school { font-size: 0.9rem; color: var(--text-secondary); }
                 .sidebar-btn { width: 100%; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 0.9rem; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 8px; font-family: var(--font-heading); font-weight: 500; position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; }
                 .sidebar-btn:disabled { background-color: var(--bg-tertiary); color: var(--text-secondary); cursor: not-allowed; opacity: 0.6; }
-                .sidebar-btn:disabled:hover { color: var(--text-secondary); border-color: var(--border-color); box-shadow: none; }
-                .sidebar-btn:disabled:hover::before { opacity: 0; }
                 .sidebar-content { display: flex; flex-direction: column; gap: 12px; flex-grow: 1; overflow: hidden; }
                 .chat-history-container { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; margin-top: 16px; padding-right: 8px; }
                 .history-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 12px; cursor: pointer; transition: background-color 0.2s ease-out; }
@@ -580,55 +802,13 @@ const App = () => {
                 input:checked + .slider:before { transform: translateX(18px); }
 
                 /* === Futuristic Hover Effects === */
-                .sidebar-header .sidebar-title,
-                .sidebar-header svg {
-                    transition: transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1),
-                                filter 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
-                }
-                .sidebar-header .logo-paths {
-                    transition: stroke 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
-                }
-
-                .sidebar-header:hover .sidebar-title {
-                    transform: scale(1.05);
-                    background: var(--gemini-gradient);
-                    -webkit-background-clip: text;
-                    background-clip: text;
-                    color: transparent;
-                }
-
-                .sidebar-header:hover svg {
-                    transform: scale(1.1);
-                    filter: drop-shadow(0 0 10px rgba(136, 215, 228, 0.4)); /* Subtle, techy glow */
-                }
-
-                .sidebar-header:hover .logo-paths {
-                    stroke: url(#gemini-gradient-svg);
-                }
-
-                .class-button::before, .sidebar-btn::before {
-                    content: '';
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: var(--gemini-gradient);
-                    z-index: -1;
-                    opacity: 0;
-                    transition: opacity 0.3s ease-out;
-                }
-                .class-button:hover, .sidebar-btn:hover {
-                    color: #fff;
-                    border-color: transparent;
-                    box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7);
-                }
-                [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:hover {
-                    color: #fff;
-                }
-                .class-button:hover::before, .sidebar-btn:hover::before {
-                    opacity: 1;
-                }
+                .sidebar-header:hover .sidebar-title { transform: scale(1.05); background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+                .sidebar-header:hover svg { transform: scale(1.1); filter: drop-shadow(0 0 10px rgba(136, 215, 228, 0.4)); }
+                .sidebar-header:hover .logo-paths { stroke: url(#gemini-gradient-svg); }
+                .class-button::before, .sidebar-btn::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out; }
+                .class-button:hover, .sidebar-btn:not(:disabled):hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
+                [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover { color: #fff; }
+                .class-button:hover::before, .sidebar-btn:not(:disabled):hover::before { opacity: 1; }
 
                 /* === Chat Area === */
                 .chat-header { display: none; padding: 12px; border-bottom: 1px solid var(--border-color); align-items: center; gap: 12px;}
@@ -643,110 +823,74 @@ const App = () => {
                 .message-content { line-height: 1.6; flex-grow: 1; overflow: hidden; font-family: 'Google Sans', sans-serif; }
                 .role-model .message-content { font-size: 1rem; font-weight: 400; }
                 .role-user .message-content { font-size: 21px; font-weight: 400; text-align: right; max-width: 80%; }
-                .message-content p { margin-bottom: 1em; }
+                .message-content p, .message-content h3 { margin-bottom: 1em; }
                 .message-content ol, .message-content ul { padding-left: 20px; margin-bottom: 1em; text-align: left; }
                 .message-content pre { background-color: var(--bg-secondary); padding: 16px; border-radius: 12px; overflow-x: auto; margin: 12px 0; font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; word-wrap: break-word; text-align: left; }
                 .message-content code:not(pre > code) { background-color: var(--bg-tertiary); padding: 2px 4px; border-radius: 6px; font-family: 'Courier New', Courier, monospace; }
                 .message-image { max-width: 300px; border-radius: 12px; margin-bottom: 8px; }
                 .copy-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s ease-out; visibility: hidden; opacity: 0; }
                 .chat-message:hover .copy-btn { visibility: visible; opacity: 1; }
-                .copy-btn:hover { background-color: var(--bg-tertiary); color: var(--text-primary); }
                 .message-sources { font-size: 0.9rem; margin-top: 16px; color: var(--text-secondary); text-align: left; }
                 .message-sources hr { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
-                .message-sources p { font-weight: 500; color: var(--text-primary); margin-bottom: 8px;}
-                .message-sources ol { padding-left: 18px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-                .message-sources a { color: var(--text-primary); text-decoration: underline; }
 
                 /* Chat Welcome Screen */
                 .chat-welcome-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; animation: fadeIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
                 .chat-welcome-screen h1 { font-family: 'Google Sans', sans-serif; font-size: 5rem; font-weight: 500; }
-                .welcome-hi { font-weight: 400; }
                 .chat-welcome-screen p { margin-top: 8px; font-size: 1.1rem; color: var(--text-secondary); max-width: 400px; }
                 .chat-welcome-screen .prompt-suggestions { margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; max-width: 700px; }
                 
                 /* Typing Indicator */
-                @keyframes typing-jump {
-                    0%, 80%, 100% {
-                        transform: translateY(0);
-                    }
-                    40% {
-                        transform: translateY(-6px);
-                    }
-                }
+                @keyframes typing-jump { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
                 .typing-indicator { display: flex; align-items: center; padding: 12px 0; }
-                .typing-indicator span {
-                    height: 10px;
-                    width: 10px;
-                    margin: 0 3px;
-                    background-color: var(--text-secondary);
-                    border-radius: 50%;
-                    display: inline-block;
-                    animation: typing-jump 1.4s infinite ease-in-out;
-                }
+                .typing-indicator span { height: 10px; width: 10px; margin: 0 3px; background-color: var(--text-secondary); border-radius: 50%; display: inline-block; animation: typing-jump 1.4s infinite ease-in-out; }
                 .typing-indicator span:nth-of-type(1) { animation-delay: -0.28s; }
                 .typing-indicator span:nth-of-type(2) { animation-delay: -0.14s; }
-                .typing-indicator span:nth-of-type(3) { animation-delay: 0s; }
-
 
                 /* === Input Area === */
                 .input-area-container { padding: 12px 40px 24px; background-color: var(--bg-primary); border-top: 1px solid var(--border-color); position: relative; }
                 .input-area { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
                 .suggestion-btn { background-color: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 10px 18px; border-radius: 12px; cursor: pointer; font-size: 1rem; transition: all 0.2s ease-out; font-family: var(--font-heading); }
-                .suggestion-btn:hover { background-color: var(--accent-primary); color: var(--bg-primary); border-color: var(--accent-primary); }
                 .input-form { display: flex; align-items: center; position: relative; background-color: var(--bg-secondary); border-radius: 16px; border: 1px solid var(--border-color); transition: border-color 0.2s ease-out; }
                 .input-form:focus-within { border-color: var(--text-primary); }
                 .chat-input { width: 100%; padding: 14px 130px 14px 50px; border: none; background: transparent; color: var(--text-primary); font-size: 1rem; font-family: var(--font-heading); }
                 .chat-input:focus { outline: none; }
                 .input-btn { position: absolute; background: none; border: none; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; display: flex; justify-content: center; align-items: center; color: var(--text-secondary); transition: all 0.2s ease-out; }
-                .input-btn:hover { color: var(--text-primary); background-color: var(--bg-tertiary); }
                 .upload-btn { left: 8px; }
                 .voice-btn { right: 52px; }
                 .voice-btn.recording { color: #e53935; }
                 .send-btn { right: 8px; background-color: var(--accent-primary); color: var(--bg-primary); }
-                .send-btn:hover { opacity: 0.8; }
                 .send-btn:disabled { background-color: var(--text-secondary); cursor: not-allowed; opacity: 0.7; }
                 .image-preview { position: relative; width: fit-content; }
                 .image-preview img { max-height: 80px; border-radius: 12px; border: 1px solid var(--border-color); }
-                .remove-image-btn { position: absolute; top: -8px; right: -8px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 20px; height: 20px; cursor: pointer; display: flex; justify-content: center; align-items: center; font-size: 12px; line-height: 1; }
+                .remove-image-btn { position: absolute; top: -8px; right: -8px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 12px; }
                 .input-options { display: flex; justify-content: space-between; align-items: center; }
                 .search-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
                 .search-toggle .switch { transform: scale(0.8); }
                 .search-toggle.disabled { opacity: 0.5; cursor: not-allowed; }
                 
                 /* Scroll to Top button */
-                .scroll-to-top-btn {
-                    position: absolute;
-                    bottom: 24px;
-                    right: 40px;
-                    z-index: 10;
-                    background: var(--bg-tertiary);
-                    color: var(--text-primary);
-                    border: 1px solid var(--border-color);
-                    border-radius: 50%;
-                    width: 44px;
-                    height: 44px;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    cursor: pointer;
-                    box-shadow: var(--shadow);
-                    opacity: 0;
-                    transform: translateY(15px);
-                    transition: opacity 0.3s ease-out, transform 0.3s ease-out;
-                    pointer-events: none;
-                }
-                .scroll-to-top-btn.visible {
-                    opacity: 1;
-                    transform: translateY(0);
-                    pointer-events: auto;
-                }
-                .scroll-to-top-btn:hover {
-                    background-color: var(--accent-primary);
-                    color: var(--bg-primary);
-                    border-color: var(--accent-primary);
-                    transform: translateY(-2px);
-                    box-shadow: 0 6px 12px rgba(0,0,0,0.1);
-                }
+                .scroll-to-top-btn { position: absolute; bottom: 24px; right: 40px; z-index: 10; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 44px; height: 44px; display: flex; justify-content: center; align-items: center; cursor: pointer; box-shadow: var(--shadow); opacity: 0; transform: translateY(15px); transition: opacity 0.3s ease-out, transform 0.3s ease-out; pointer-events: none; }
+                .scroll-to-top-btn.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+                /* === Quiz UI === */
+                .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 200; display: flex; justify-content: center; align-items: center; animation: fadeIn 0.2s ease-out; }
+                .modal-content { background: var(--bg-primary); padding: 32px; border-radius: 16px; width: 90%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+                .modal-content h2 { font-family: var(--font-heading); margin-bottom: 8px; }
+                .modal-content p { color: var(--text-secondary); margin-bottom: 24px; }
+                .modal-input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-size: 1rem; }
+                .modal-buttons { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+                .modal-btn { padding: 12px 24px; border: none; border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; transition: opacity 0.2s; font-size: 1rem; }
+                .modal-btn.cancel { background: var(--bg-tertiary); color: var(--text-primary); }
+                .modal-btn.submit { background: var(--accent-primary); color: var(--bg-primary); }
+                .modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+                .quiz-view { margin-top: 24px; animation: fadeIn 0.5s ease-out; }
+                .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0 16px 48px; }
+                .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 0.95rem; text-align: left; transition: all 0.2s ease-out; }
+                .quiz-option-btn:not(:disabled):hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
+                .quiz-option-btn.correct { background-color: var(--correct-color); color: white; border-color: var(--correct-color); }
+                .quiz-option-btn.incorrect { background-color: var(--incorrect-color); color: white; border-color: var(--incorrect-color); }
+                .quiz-option-btn:disabled { cursor: not-allowed; opacity: 0.8; }
+                .quiz-explanation { margin-left: 48px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 0.9rem; animation: fadeIn 0.3s ease-out; }
 
                 /* === Responsive Design === */
                 @media (max-width: 768px) {
@@ -760,8 +904,12 @@ const App = () => {
                     .chat-welcome-screen h1 { font-size: 3rem; }
                     .title-main { font-size: 3.5rem; }
                     .scroll-to-top-btn { right: 20px; bottom: 20px; }
+                    .quiz-options { grid-template-columns: 1fr; margin-left: 0; }
+                    .quiz-explanation { margin-left: 0; }
                 }
             `}</style>
+
+            {showQuizModal && <QuizModal onStart={handleStartQuiz} onCancel={() => setShowQuizModal(false)} topic={quizTopic} setTopic={setQuizTopic} />}
 
             <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
                 <div className="sidebar-header">
@@ -776,9 +924,9 @@ const App = () => {
                         <Icon path="M12 5v14m-7-7h14" size={16} /> New Chat
                     </button>
                     <div className="chat-history-container">
-                        {selectedClass && Object.entries(chatHistories[selectedClass] || {}).map(([chatId, messages]) => (
+                        {selectedClass && Object.entries(chatHistories[selectedClass] || {}).map(([chatId, chat]) => (
                              <div key={chatId} className={`history-item ${chatId === activeChatId ? 'active' : ''}`} onClick={() => handleSelectChat(chatId)}>
-                                <span>{messages[0]?.text.substring(0, 25) || 'New Chat...'}</span>
+                                <span>{chat.title || chat.messages[0]?.text.substring(0, 25) || 'New Chat...'}</span>
                                 <button className="history-delete-btn" onClick={(e) => { e.stopPropagation(); handleDeleteChat(chatId); }} aria-label="Delete chat">
                                     <Icon path="M18 6L6 18M6 6l12 12" size={16} />
                                 </button>
@@ -786,6 +934,9 @@ const App = () => {
                         ))}
                     </div>
                     <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '16px 0'}}/>
+                     <button className="sidebar-btn" onClick={() => setShowQuizModal(true)} disabled={!selectedClass || isLoading}>
+                        <Icon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" size={16} /> Start Quiz
+                    </button>
                      <button className="sidebar-btn" onClick={handleSummarizeChat} disabled={!selectedClass || currentMessages.length < 2 || isLoading}>
                         <Icon path="M3 6h18M3 12h18M3 18h18" size={16} /> Summarize Chat
                     </button>
@@ -820,18 +971,26 @@ const App = () => {
                 <div className="chat-area" ref={chatAreaRef}>
                     {selectedClass === null ? <InitialClassSelector onSelectClass={setSelectedClass} /> :
                      currentMessages.length === 0 ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
-                        (<>
-                            {currentMessages.map((msg, index) => (
+                        (
+                            currentMessages.map((msg, index) => (
                                 <Message 
                                     key={index} 
                                     msg={msg} 
                                     isLastMessage={index === currentMessages.length - 1}
                                     isLoading={isLoading}
                                 />
-                            ))}
-                            <div ref={chatEndRef} />
-                        </>
+                            ))
+                        )
+                    }
+                    {isQuizModeActive && quizQuestions.length > 0 && (
+                        <QuizView
+                            question={quizQuestions[currentQuestionIndex]}
+                            onAnswerSelect={handleAnswerSelect}
+                            selectedAnswer={selectedAnswer}
+                        />
                     )}
+                    <div ref={chatEndRef} />
+
                      {selectedClass !== null && (
                         <button 
                             onClick={handleScrollToTop} 
@@ -844,7 +1003,7 @@ const App = () => {
                     )}
                 </div>
 
-                {selectedClass !== null && (
+                {selectedClass !== null && !isQuizModeActive && (
                     <div className="input-area-container">
                         <div className="input-area">
                            <div className="input-options">
