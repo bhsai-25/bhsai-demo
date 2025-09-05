@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { marked } from 'marked';
 
@@ -45,10 +46,12 @@ const App = () => {
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const [isGoogleSearchEnabled, setGoogleSearchEnabled] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
+    const [showScrollTop, setShowScrollTop] = useState(false);
 
     const chatEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const recognitionRef = useRef<any>(null); // For SpeechRecognition
+    const chatAreaRef = useRef<HTMLDivElement>(null);
 
     const activeChatId = selectedClass ? activeChatIds[selectedClass] : null;
     const currentMessages = (selectedClass && activeChatId && chatHistories[selectedClass]?.[activeChatId]) || [];
@@ -113,6 +116,22 @@ const App = () => {
             recognitionRef.current = recognition;
         }
     }, []);
+
+    useEffect(() => {
+        const chatArea = chatAreaRef.current;
+        if (!chatArea) return;
+
+        const handleScroll = () => {
+            if (chatArea.scrollTop > chatArea.clientHeight / 2) {
+                setShowScrollTop(true);
+            } else {
+                setShowScrollTop(false);
+            }
+        };
+
+        chatArea.addEventListener('scroll', handleScroll, { passive: true });
+        return () => chatArea.removeEventListener('scroll', handleScroll);
+    }, [selectedClass, activeChatId]); // Re-attach listener if chat view changes
 
     // === Core Logic ===
     const handleSendMessage = async (messageText: string) => {
@@ -319,6 +338,10 @@ const App = () => {
         }
     };
 
+    const handleScrollToTop = () => {
+        chatAreaRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
     // === Components ===
     const BHSLogo = ({ className }: { className?: string }) => (
         <svg className={className} width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ stroke: 'currentColor', strokeWidth: 1.5 }}>
@@ -335,7 +358,11 @@ const App = () => {
     );
 
     const TypingIndicator = () => (
-        <p className="typing-indicator">Typing...</p>
+        <div className="typing-indicator">
+            <span />
+            <span />
+            <span />
+        </div>
     );
     
     const Message = ({ msg, index }: { msg: ChatMessage, index: number }) => {
@@ -348,14 +375,15 @@ const App = () => {
 
         const isLastMessage = index === currentMessages.length - 1;
         const showTyping = isLoading && isLastMessage && msg.role === 'model';
+        const isLoadingMessage = isLoading && isLastMessage && msg.role === 'model';
         
         return (
-            <div className={`chat-message role-${msg.role}`}>
+            <div className={`chat-message role-${msg.role} ${isLoadingMessage ? 'is-loading-message' : ''}`}>
                 {msg.role === 'model' && <div className="message-avatar"><BHSLogo /></div>}
                 <div className="message-content-wrapper">
                     <div className="message-content">
                         {msg.image && <img src={msg.image} alt="User upload" className="message-image" />}
-                        {showTyping && !msg.text ? <TypingIndicator /> : <div className={msg.role === 'model' && msg.text ? 'model-text-fade-in' : ''} dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) as string }}></div>}
+                        {showTyping && !msg.text ? <TypingIndicator /> : <div dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) as string }}></div>}
                          {msg.sources && msg.sources.length > 0 && (
                             <div className="message-sources">
                                 <hr />
@@ -434,12 +462,8 @@ const App = () => {
                 }
 
                 @keyframes fadeIn {
-                    from { opacity: 0; transform: translateY(20px); }
+                    from { opacity: 0; transform: translateY(10px); }
                     to { opacity: 1; transform: translateY(0); }
-                }
-                
-                .model-text-fade-in {
-                    animation: fadeIn 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
                 }
 
                 /* === Initial Class Selector === */
@@ -453,12 +477,12 @@ const App = () => {
                 .disclaimer-warning { font-family: var(--font-body); font-size: 0.8rem; color: var(--text-secondary); max-width: 400px; margin-top: -8px; line-height: 1.4; }
                 h2 { margin-top: 20px; font-family: var(--font-heading); font-weight: 500;}
                 .class-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 16px; width: 100%; max-width: 600px; }
-                .class-button { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 1rem; font-family: var(--font-heading); font-weight: 500; position: relative; overflow: hidden; z-index: 1; transition: color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease; }
+                .class-button { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 1rem; font-family: var(--font-heading); font-weight: 500; position: relative; overflow: hidden; z-index: 1; transition: all 0.25s ease-out; }
                 .creator-credit { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; }
 
                 /* === Main Layout === */
                 .app-container { display: flex; height: 100vh; }
-                .sidebar { width: 260px; background-color: var(--bg-secondary); padding: 24px; display: flex; flex-direction: column; border-right: 1px solid var(--border-color); transition: transform 0.3s ease; transform: translateX(0); }
+                .sidebar { width: 260px; background-color: var(--bg-secondary); padding: 24px; display: flex; flex-direction: column; border-right: 1px solid var(--border-color); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); transform: translateX(0); }
                 .chat-main { flex: 1; display: flex; flex-direction: column; position: relative; background-color: var(--bg-primary); }
                 
                 /* === Sidebar === */
@@ -467,21 +491,21 @@ const App = () => {
                 .sidebar-title { 
                     font-family: var(--font-heading); 
                     font-size: 1.5rem; 
-                    transition: transform 0.3s ease-in-out;
+                    transition: transform 0.25s ease-in-out;
                     transform-origin: left center;
                 }
                 .sidebar-school { font-size: 0.9rem; color: var(--text-secondary); }
-                .sidebar-btn { width: 100%; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 0.9rem; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 8px; font-family: var(--font-heading); font-weight: 500; position: relative; z-index: 1; overflow: hidden; transition: color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease; }
+                .sidebar-btn { width: 100%; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 0.9rem; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 8px; font-family: var(--font-heading); font-weight: 500; position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; }
                 .sidebar-btn:disabled { background-color: var(--bg-tertiary); color: var(--text-secondary); cursor: not-allowed; opacity: 0.6; }
                 .sidebar-btn:disabled:hover { color: var(--text-secondary); border-color: var(--border-color); box-shadow: none; }
                 .sidebar-btn:disabled:hover::before { opacity: 0; }
                 .sidebar-content { display: flex; flex-direction: column; gap: 12px; flex-grow: 1; overflow: hidden; }
                 .chat-history-container { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; margin-top: 16px; padding-right: 8px; }
-                .history-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 12px; cursor: pointer; transition: background-color 0.2s; }
+                .history-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 12px; cursor: pointer; transition: background-color 0.2s ease-out; }
                 .history-item:hover { background-color: var(--bg-tertiary); }
                 .history-item.active { background-color: var(--accent-primary); color: var(--bg-primary); }
                 .history-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem; }
-                .history-delete-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; opacity: 0; transition: opacity 0.2s; }
+                .history-delete-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; opacity: 0; transition: opacity 0.2s ease-out; }
                 .history-item:hover .history-delete-btn { opacity: 1; }
                 .history-item.active .history-delete-btn { color: var(--bg-primary); }
                 .sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 16px; }
@@ -489,8 +513,8 @@ const App = () => {
                 .theme-toggle > span { text-transform: uppercase; font-size: 0.75rem; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px; padding-left: 12px; }
                 .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
                 .switch input { opacity: 0; width: 0; height: 0; }
-                .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--bg-tertiary); border: 1px solid var(--border-color); transition: .4s; border-radius: 22px; }
-                .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: var(--text-secondary); transition: .4s; border-radius: 50%; }
+                .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--bg-tertiary); border: 1px solid var(--border-color); transition: .3s; border-radius: 22px; }
+                .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: var(--text-secondary); transition: .3s; border-radius: 50%; }
                 input:checked + .slider { background-color: var(--accent-primary); border-color: var(--accent-primary); }
                 [data-theme='dark'] input:checked + .slider:before { background-color: var(--bg-primary); }
                 input:checked + .slider:before { transform: translateX(18px); }
@@ -507,7 +531,7 @@ const App = () => {
                     background-size: 200% 200%;
                     z-index: -1;
                     opacity: 0;
-                    transition: opacity 0.4s ease-in-out;
+                    transition: opacity 0.3s ease-in-out;
                 }
                 .sidebar-header .logo-container:hover::before {
                     opacity: 1;
@@ -515,7 +539,7 @@ const App = () => {
                 }
                 .sidebar-header .logo-container:hover svg {
                     stroke: white;
-                    transition: stroke 0.4s ease;
+                    transition: stroke 0.3s ease;
                 }
                 [data-theme='dark'] .sidebar-header .logo-container:hover svg { stroke: var(--bg-primary); }
 
@@ -529,7 +553,7 @@ const App = () => {
                     background: var(--gemini-gradient);
                     z-index: -1;
                     opacity: 0;
-                    transition: opacity 0.4s ease-out;
+                    transition: opacity 0.3s ease-out;
                 }
                 .class-button:hover, .sidebar-btn:hover {
                     color: #fff;
@@ -546,8 +570,9 @@ const App = () => {
                 /* === Chat Area === */
                 .chat-header { display: none; padding: 12px; border-bottom: 1px solid var(--border-color); align-items: center; gap: 12px;}
                 .menu-btn { background: none; border: none; color: var(--text-primary); cursor: pointer; padding: 8px; }
-                .chat-area { flex: 1; overflow-y: auto; padding: 24px 40px; }
-                .chat-message { display: flex; gap: 16px; margin-bottom: 24px; width: 100%; }
+                .chat-area { flex: 1; overflow-y: auto; padding: 24px 40px; position: relative; }
+                .chat-message { display: flex; gap: 16px; margin-bottom: 24px; width: 100%; animation: fadeIn 0.4s ease forwards; }
+                .chat-message.is-loading-message { animation: none; }
                 .role-model { max-width: 80%; }
                 .role-user { justify-content: flex-end; }
                 .message-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--bg-tertiary); display: flex; justify-content: center; align-items: center; font-weight: bold; flex-shrink: 0; align-self: flex-start; }
@@ -561,7 +586,7 @@ const App = () => {
                 .message-content pre { background-color: var(--bg-secondary); padding: 16px; border-radius: 12px; overflow-x: auto; margin: 12px 0; font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; word-wrap: break-word; text-align: left; }
                 .message-content code:not(pre > code) { background-color: var(--bg-tertiary); padding: 2px 4px; border-radius: 6px; font-family: 'Courier New', Courier, monospace; }
                 .message-image { max-width: 300px; border-radius: 12px; margin-bottom: 8px; }
-                .copy-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: color 0.2s, background-color 0.2s; visibility: hidden; opacity: 0; }
+                .copy-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s ease-out; visibility: hidden; opacity: 0; }
                 .chat-message:hover .copy-btn { visibility: visible; opacity: 1; }
                 .copy-btn:hover { background-color: var(--bg-tertiary); color: var(--text-primary); }
                 .message-sources { font-size: 0.9rem; margin-top: 16px; color: var(--text-secondary); text-align: left; }
@@ -571,30 +596,37 @@ const App = () => {
                 .message-sources a { color: var(--text-primary); text-decoration: underline; }
 
                 /* Chat Welcome Screen */
-                .chat-welcome-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; animation: fadeIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+                .chat-welcome-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; animation: fadeIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
                 .chat-welcome-screen h1 { font-family: 'Google Sans', sans-serif; font-size: 5rem; font-weight: 500; }
                 .welcome-hi { font-weight: 400; }
                 .chat-welcome-screen p { margin-top: 8px; font-size: 1.1rem; color: var(--text-secondary); max-width: 400px; }
                 .chat-welcome-screen .prompt-suggestions { margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; max-width: 700px; }
                 
                 /* Typing Indicator */
-                .typing-indicator {
-                    font-family: 'Google Sans', sans-serif;
-                    font-size: 18px;
-                    color: var(--text-secondary);
-                    padding: 4px 0;
+                .typing-indicator { display: flex; align-items: center; padding: 12px 0; }
+                .typing-indicator span {
+                    height: 10px; width: 10px; margin: 0 2px;
+                    background-color: var(--text-secondary);
+                    border-radius: 50%; display: inline-block;
+                    animation: typing-pulse 1.4s infinite ease-in-out both;
+                }
+                .typing-indicator span:nth-of-type(1) { animation-delay: -0.32s; }
+                .typing-indicator span:nth-of-type(2) { animation-delay: -0.16s; }
+                @keyframes typing-pulse {
+                    0%, 80%, 100% { transform: scale(0.5); opacity: 0.5; }
+                    40% { transform: scale(1.0); opacity: 1; }
                 }
 
                 /* === Input Area === */
-                .input-area-container { padding: 12px 40px 24px; background-color: var(--bg-primary); border-top: 1px solid var(--border-color); }
+                .input-area-container { padding: 12px 40px 24px; background-color: var(--bg-primary); border-top: 1px solid var(--border-color); position: relative; }
                 .input-area { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
-                .suggestion-btn { background-color: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 10px 18px; border-radius: 12px; cursor: pointer; font-size: 1rem; transition: all 0.2s; font-family: var(--font-heading); }
+                .suggestion-btn { background-color: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 10px 18px; border-radius: 12px; cursor: pointer; font-size: 1rem; transition: all 0.2s ease-out; font-family: var(--font-heading); }
                 .suggestion-btn:hover { background-color: var(--accent-primary); color: var(--bg-primary); border-color: var(--accent-primary); }
-                .input-form { display: flex; align-items: center; position: relative; background-color: var(--bg-secondary); border-radius: 16px; border: 1px solid var(--border-color); transition: border-color 0.2s; }
+                .input-form { display: flex; align-items: center; position: relative; background-color: var(--bg-secondary); border-radius: 16px; border: 1px solid var(--border-color); transition: border-color 0.2s ease-out; }
                 .input-form:focus-within { border-color: var(--text-primary); }
                 .chat-input { width: 100%; padding: 14px 130px 14px 50px; border: none; background: transparent; color: var(--text-primary); font-size: 1rem; font-family: var(--font-heading); }
                 .chat-input:focus { outline: none; }
-                .input-btn { position: absolute; background: none; border: none; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; display: flex; justify-content: center; align-items: center; color: var(--text-secondary); transition: all 0.2s; }
+                .input-btn { position: absolute; background: none; border: none; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; display: flex; justify-content: center; align-items: center; color: var(--text-secondary); transition: all 0.2s ease-out; }
                 .input-btn:hover { color: var(--text-primary); background-color: var(--bg-tertiary); }
                 .upload-btn { left: 8px; }
                 .voice-btn { right: 52px; }
@@ -609,6 +641,41 @@ const App = () => {
                 .search-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
                 .search-toggle .switch { transform: scale(0.8); }
                 .search-toggle.disabled { opacity: 0.5; cursor: not-allowed; }
+                
+                /* Scroll to Top button */
+                .scroll-to-top-btn {
+                    position: absolute;
+                    bottom: 24px;
+                    right: 40px;
+                    z-index: 10;
+                    background: var(--bg-tertiary);
+                    color: var(--text-primary);
+                    border: 1px solid var(--border-color);
+                    border-radius: 50%;
+                    width: 44px;
+                    height: 44px;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    cursor: pointer;
+                    box-shadow: var(--shadow);
+                    opacity: 0;
+                    transform: translateY(15px);
+                    transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+                    pointer-events: none;
+                }
+                .scroll-to-top-btn.visible {
+                    opacity: 1;
+                    transform: translateY(0);
+                    pointer-events: auto;
+                }
+                .scroll-to-top-btn:hover {
+                    background-color: var(--accent-primary);
+                    color: var(--bg-primary);
+                    border-color: var(--accent-primary);
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+                }
 
                 /* === Responsive Design === */
                 @media (max-width: 768px) {
@@ -621,6 +688,7 @@ const App = () => {
                     .role-user .message-content, .role-model .message-content { max-width: 95%; }
                     .chat-welcome-screen h1 { font-size: 3rem; }
                     .title-main { font-size: 3.5rem; }
+                    .scroll-to-top-btn { right: 20px; bottom: 20px; }
                 }
             `}</style>
 
@@ -678,13 +746,23 @@ const App = () => {
                     <h2 className="sidebar-title">bhsAI</h2>
                 </div>
 
-                <div className="chat-area">
+                <div className="chat-area" ref={chatAreaRef}>
                     {selectedClass === null ? <InitialClassSelector /> :
                      currentMessages.length === 0 ? <ChatWelcomeScreen /> :
                         (<>
                             {currentMessages.map((msg, index) => <Message key={index} msg={msg} index={index}/>)}
                             <div ref={chatEndRef} />
                         </>
+                    )}
+                     {selectedClass !== null && (
+                        <button 
+                            onClick={handleScrollToTop} 
+                            className={`scroll-to-top-btn ${showScrollTop ? 'visible' : ''}`} 
+                            aria-label="Scroll to top"
+                            aria-hidden={!showScrollTop}
+                        >
+                            <Icon path="M12 19V5M5 12l7-7 7 7" />
+                        </button>
                     )}
                 </div>
 
