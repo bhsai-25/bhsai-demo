@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked } from 'marked';
 
@@ -151,21 +152,40 @@ const ChatWelcomeScreen = ({ suggestions, onSendMessage }: { suggestions: string
     </div>
 );
 
-const QuizModal = ({ onStart, onCancel, topic, setTopic }: { onStart: (e: React.FormEvent) => void, onCancel: () => void, topic: string, setTopic: (t: string) => void }) => (
+const QuizModal = ({ onStart, onCancel, topic, setTopic, numQuestions, setNumQuestions }: { onStart: (e: React.FormEvent) => void, onCancel: () => void, topic: string, setTopic: (t: string) => void, numQuestions: number, setNumQuestions: (n: number) => void }) => (
     <div className="modal-overlay">
         <div className="modal-content">
             <h2>Start a Quiz</h2>
-            <p>Enter a topic for your quiz based on your current class syllabus.</p>
+            <p>Enter a topic and select the number of questions for your quiz.</p>
             <form onSubmit={onStart}>
-                <input
-                    type="text"
-                    className="modal-input"
-                    value={topic}
-                    onChange={(e) => setTopic(e.target.value)}
-                    placeholder="e.g., Newton's Laws of Motion"
-                    aria-label="Quiz topic"
-                    autoFocus
-                />
+                <div className="modal-form-group">
+                    <label htmlFor="quiz-topic">Topic</label>
+                    <input
+                        id="quiz-topic"
+                        type="text"
+                        className="modal-input"
+                        value={topic}
+                        onChange={(e) => setTopic(e.target.value)}
+                        placeholder="e.g., Newton's Laws of Motion"
+                        aria-label="Quiz topic"
+                        autoFocus
+                    />
+                </div>
+                <div className="modal-form-group">
+                    <label htmlFor="num-questions">Number of Questions</label>
+                    <select
+                        id="num-questions"
+                        className="modal-select"
+                        value={numQuestions}
+                        onChange={(e) => setNumQuestions(Number(e.target.value))}
+                        aria-label="Number of questions"
+                    >
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="20">20</option>
+                    </select>
+                </div>
                 <div className="modal-buttons">
                     <button type="button" className="modal-btn cancel" onClick={onCancel}>Cancel</button>
                     <button type="submit" className="modal-btn submit" disabled={!topic.trim()}>Start Quiz</button>
@@ -264,6 +284,7 @@ const App = () => {
     // Quiz State
     const [showQuizModal, setShowQuizModal] = useState(false);
     const [quizTopic, setQuizTopic] = useState('');
+    const [quizNumQuestions, setQuizNumQuestions] = useState(5);
     const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [userAnswers, setUserAnswers] = useState<(number | null)[]>([]);
@@ -657,6 +678,7 @@ const App = () => {
                 body: JSON.stringify({
                     topic: quizTopic,
                     systemInstruction: getSystemInstruction(selectedClass),
+                    numQuestions: quizNumQuestions,
                 }),
             });
 
@@ -877,15 +899,18 @@ const App = () => {
                 .modal-content { background: var(--bg-primary); padding: 32px; border-radius: 16px; width: 90%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
                 .modal-content h2 { font-family: var(--font-heading); margin-bottom: 8px; }
                 .modal-content p { color: var(--text-secondary); margin-bottom: 24px; }
-                .modal-input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-size: 1rem; }
+                .modal-form-group { margin-bottom: 16px; }
+                .modal-form-group label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); font-family: var(--font-heading); font-weight: 500; }
+                .modal-input, .modal-select { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-family: var(--font-heading); font-size: 1.1rem; }
                 .modal-buttons { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
                 .modal-btn { padding: 12px 24px; border: none; border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; transition: opacity 0.2s; font-size: 1rem; }
                 .modal-btn.cancel { background: var(--bg-tertiary); color: var(--text-primary); }
                 .modal-btn.submit { background: var(--accent-primary); color: var(--bg-primary); }
                 .modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
                 .quiz-view { margin-top: 24px; animation: fadeIn 0.5s ease-out; }
+                .quiz-view .message-content { font-family: var(--font-heading); font-size: 21px; }
                 .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0 16px 48px; }
-                .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 0.95rem; text-align: left; transition: all 0.2s ease-out; }
+                .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; text-align: left; transition: all 0.2s ease-out; font-family: var(--font-heading); font-size: 1rem; }
                 .quiz-option-btn:not(:disabled):hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
                 .quiz-option-btn.correct { background-color: var(--correct-color); color: white; border-color: var(--correct-color); }
                 .quiz-option-btn.incorrect { background-color: var(--incorrect-color); color: white; border-color: var(--incorrect-color); }
@@ -909,7 +934,14 @@ const App = () => {
                 }
             `}</style>
 
-            {showQuizModal && <QuizModal onStart={handleStartQuiz} onCancel={() => setShowQuizModal(false)} topic={quizTopic} setTopic={setQuizTopic} />}
+            {showQuizModal && <QuizModal
+                onStart={handleStartQuiz}
+                onCancel={() => setShowQuizModal(false)}
+                topic={quizTopic}
+                setTopic={setQuizTopic}
+                numQuestions={quizNumQuestions}
+                setNumQuestions={setQuizNumQuestions}
+            />}
 
             <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
                 <div className="sidebar-header">
