@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
 
@@ -451,6 +452,7 @@ const App = () => {
     // Quiz State
     const [showQuizModal, setShowQuizModal] = useState(false);
     const [quizTopic, setQuizTopic] = useState('');
+    const [quizTopicForDisplay, setQuizTopicForDisplay] = useState('');
     const [quizNumQuestions, setQuizNumQuestions] = useState(5);
     const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -835,6 +837,7 @@ const App = () => {
         e.preventDefault();
         if (!quizTopic.trim() || !selectedClass) return;
 
+        setQuizTopicForDisplay(quizTopic);
         setIsLoading(true);
         setShowQuizModal(false);
         addNewMessage({ role: 'user', text: `Start a quiz on: ${quizTopic}` });
@@ -900,7 +903,7 @@ const App = () => {
                 setQuizStage('results');
                 
                 // Add score message to chat history in the background
-                const scoreMessage = `## Quiz Complete!\n\n**Topic: ${quizTopic}**\n**Final score: ${score} out of ${quizQuestions.length}**`;
+                const scoreMessage = `## Quiz Complete!\n\n**Topic: ${quizTopicForDisplay}**\n**Final score: ${score} out of ${quizQuestions.length}**`;
                 addNewMessage({ role: 'model', text: scoreMessage });
             }
         }, 2500); // Wait 2.5s to show feedback before moving on
@@ -916,7 +919,7 @@ const App = () => {
 
 
     return (
-        <div className={`app-container ${isQuizModeActive ? 'quiz-active' : ''}`}>
+        <div className="app-container">
             <style>{`
                 /* === Base & Theme === */
                 :root {
@@ -1184,20 +1187,58 @@ const App = () => {
                     font-weight: 500;
                 }
 
-                /* === Immersive Quiz Mode === */
-                .app-container.quiz-active .sidebar { margin-left: -260px; }
-                .quiz-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-primary); z-index: 150; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 24px; animation: fadeIn 0.3s ease-out; }
-                .quiz-container { width: 100%; max-width: 800px; height: 100%; display: flex; flex-direction: column; }
-                .quiz-progress-bar { padding: 16px 0; width: 100%; }
+                /* === Quiz Dialog === */
+                .quiz-dialog {
+                    background: var(--bg-primary);
+                    border-radius: 16px;
+                    width: 90%;
+                    max-width: 800px;
+                    height: 90%;
+                    max-height: 700px;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                    display: flex;
+                    flex-direction: column;
+                    overflow: hidden;
+                    animation: fadeIn 0.3s ease-out;
+                }
+                .quiz-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 16px 24px;
+                    border-bottom: 1px solid var(--border-color);
+                    flex-shrink: 0;
+                }
+                .quiz-header h3 {
+                    font-family: var(--font-heading);
+                    font-size: 1.2rem;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                .quiz-close-btn {
+                    background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 50%;
+                    display: flex; align-items: center; justify-content: center; transition: background-color 0.2s, color 0.2s;
+                }
+                .quiz-close-btn:hover { background-color: var(--bg-tertiary); color: var(--text-primary); }
+                .quiz-content {
+                    flex-grow: 1;
+                    overflow-y: auto;
+                    padding: 24px;
+                    display: flex;
+                    flex-direction: column;
+                }
+
+                .quiz-progress-bar { padding: 0 0 16px 0; width: 100%; flex-shrink: 0; }
                 .quiz-progress-bar .progress-text { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; }
                 .quiz-progress-bar .progress-track { width: 100%; height: 6px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden; }
                 .quiz-progress-bar .progress-fill { height: 100%; background: var(--gemini-gradient); border-radius: 3px; transition: width 0.3s ease-out; }
 
                 /* Quiz View */
-                .quiz-view { flex-grow: 1; overflow-y: auto; animation: fadeIn 0.5s ease-out; }
-                .quiz-view .message-content { font-family: var(--font-heading); font-size: 21px; }
+                .quiz-view { flex-grow: 1; animation: fadeIn 0.5s ease-out; }
+                .quiz-view .message-content { font-family: var(--font-heading); font-size: 1.25rem; }
                 .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0 16px 48px; }
-                .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; text-align: left; transition: all 0.2s ease-out; font-family: var(--font-heading); font-size: 1.1rem; }
+                .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; text-align: left; transition: all 0.2s ease-out; font-family: var(--font-heading); font-size: 1rem; }
                 .quiz-option-btn.correct { background-color: var(--correct-color); color: white; border-color: var(--correct-color); }
                 .quiz-option-btn.incorrect { background-color: var(--incorrect-color); color: white; border-color: var(--incorrect-color); }
                 .quiz-option-btn:disabled { cursor: not-allowed; opacity: 0.8; }
@@ -1222,7 +1263,6 @@ const App = () => {
 
                 /* === Responsive Design === */
                 @media (max-width: 768px) {
-                    .app-container.quiz-active .sidebar { margin-left: 0; transform: translateX(-100%); }
                     .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; transform: translateX(-100%); }
                     .sidebar.open { transform: translateX(0); box-shadow: 0 0 20px rgba(0,0,0,0.2); }
                     .chat-header { display: flex; }
@@ -1237,7 +1277,6 @@ const App = () => {
                     .quiz-explanation { margin-left: 0; }
                     .role-user .message-content { font-size: 1rem; }
                     .role-model .message-content { font-size: 0.95rem; }
-                    .quiz-overlay { padding: 16px; }
                 }
             `}</style>
 
@@ -1247,6 +1286,7 @@ const App = () => {
                 topic={quizTopic}
                 setTopic={setQuizTopic}
                 numQuestions={quizNumQuestions}
+                // FIX: Pass the correct state setter function for the number of questions.
                 setNumQuestions={setQuizNumQuestions}
             />}
 
@@ -1381,27 +1421,35 @@ const App = () => {
             </div>
             
             {isQuizModeActive && (
-                <div className="quiz-overlay">
-                    <div className="quiz-container">
-                        <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
-                        {quizStage === 'question' && quizQuestions.length > 0 && (
-                            <QuizView
-                                question={quizQuestions[currentQuestionIndex]}
-                                onAnswerSelect={handleAnswerSelect}
-                                selectedAnswer={selectedAnswer}
-                            />
-                        )}
-                        {quizStage === 'results' && (
-                            <QuizResults
-                                score={quizScore}
-                                total={quizQuestions.length}
-                                onFinish={handleFinishQuiz}
-                                onTryAgain={() => {
-                                    handleFinishQuiz();
-                                    setShowQuizModal(true);
-                                }}
-                            />
-                        )}
+                <div className="modal-overlay">
+                    <div className="quiz-dialog">
+                        <div className="quiz-header">
+                            <h3>Quiz: {quizTopicForDisplay}</h3>
+                            <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="End Quiz">
+                                <Icon path="M18 6L6 18M6 6l12 12" size={20} />
+                            </button>
+                        </div>
+                        <div className="quiz-content">
+                            <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
+                            {quizStage === 'question' && quizQuestions.length > 0 && (
+                                <QuizView
+                                    question={quizQuestions[currentQuestionIndex]}
+                                    onAnswerSelect={handleAnswerSelect}
+                                    selectedAnswer={selectedAnswer}
+                                />
+                            )}
+                            {quizStage === 'results' && (
+                                <QuizResults
+                                    score={quizScore}
+                                    total={quizQuestions.length}
+                                    onFinish={handleFinishQuiz}
+                                    onTryAgain={() => {
+                                        handleFinishQuiz();
+                                        setShowQuizModal(true);
+                                    }}
+                                />
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
