@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked } from 'marked';
 
@@ -876,11 +877,9 @@ const App = () => {
                 .sidebar-content { display: flex; flex-direction: column; gap: 12px; flex-grow: 1; overflow: hidden; }
                 .chat-history-container { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; margin-top: 16px; padding-right: 8px; }
                 .history-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 12px; cursor: pointer; transition: background-color 0.2s ease-out; }
-                .history-item:hover { background-color: var(--bg-tertiary); }
                 .history-item.active { background-color: var(--accent-primary); color: var(--bg-primary); }
                 .history-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem; }
                 .history-delete-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; opacity: 0; transition: opacity 0.2s ease-out; }
-                .history-item:hover .history-delete-btn { opacity: 1; }
                 .history-item.active .history-delete-btn { color: var(--bg-primary); }
                 .sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 16px; }
                 .theme-toggle { display: flex; justify-content: space-between; align-items: center; padding: 8px; background-color: var(--bg-tertiary); border-radius: 999px; }
@@ -893,14 +892,27 @@ const App = () => {
                 [data-theme='dark'] input:checked + .slider:before { background-color: var(--bg-primary); }
                 input:checked + .slider:before { transform: translateX(18px); }
 
-                /* === Futuristic Hover Effects === */
-                .sidebar-header:hover .sidebar-title { transform: scale(1.05); background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
-                .sidebar-header:hover svg { transform: scale(1.1); filter: drop-shadow(0 0 10px rgba(136, 215, 228, 0.4)); }
-                .sidebar-header:hover .logo-paths { stroke: url(#gemini-gradient-svg); }
-                .class-button::before, .sidebar-btn::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out; }
-                .class-button:hover, .sidebar-btn:not(:disabled):hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
-                [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover { color: #fff; }
-                .class-button:hover::before, .sidebar-btn:not(:disabled):hover::before { opacity: 1; }
+                /* === Futuristic Hover Effects (Desktop Only) === */
+                .class-button::before, .sidebar-btn::before, .modal-btn.submit::before {
+                     content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out;
+                }
+                
+                @media (hover: hover) {
+                    .sidebar-header:hover .sidebar-title { transform: scale(1.05); background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+                    .sidebar-header:hover svg { transform: scale(1.1); filter: drop-shadow(0 0 10px rgba(136, 215, 228, 0.4)); }
+                    .sidebar-header:hover .logo-paths { stroke: url(#gemini-gradient-svg); }
+                    .class-button:hover, .sidebar-btn:not(:disabled):hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
+                    [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover { color: #fff; }
+                    .class-button:hover::before, .sidebar-btn:not(:disabled):hover::before { opacity: 1; }
+                    .history-item:hover { background-color: var(--bg-tertiary); }
+                    .history-item:hover .history-delete-btn { opacity: 1; }
+                    .chat-message:hover .copy-btn { visibility: visible; opacity: 1; }
+                    .modal-btn.submit:not(:disabled):hover { color: #fff; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
+                    [data-theme='dark'] .modal-btn.submit:not(:disabled):hover { color: #fff; }
+                    .modal-btn.submit:not(:disabled):hover::before { opacity: 1; }
+                    .custom-select-option:hover { background-color: var(--bg-secondary); }
+                    .quiz-option-btn:not(:disabled):hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
+                }
 
                 /* === Chat Area === */
                 .chat-header { display: none; padding: 12px; border-bottom: 1px solid var(--border-color); align-items: center; gap: 12px;}
@@ -921,7 +933,6 @@ const App = () => {
                 .message-content code:not(pre > code) { background-color: var(--bg-tertiary); padding: 2px 4px; border-radius: 6px; font-family: 'Courier New', Courier, monospace; }
                 .message-image { max-width: 300px; border-radius: 12px; margin-bottom: 8px; }
                 .copy-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s ease-out; visibility: hidden; opacity: 0; }
-                .chat-message:hover .copy-btn { visibility: visible; opacity: 1; }
                 .message-sources { font-size: 0.9rem; margin-top: 16px; color: var(--text-secondary); text-align: left; }
                 .message-sources hr { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
 
@@ -976,10 +987,6 @@ const App = () => {
                 .modal-btn { padding: 12px 24px; border: none; border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; transition: opacity 0.2s; font-size: 1rem; }
                 .modal-btn.cancel { background: var(--bg-tertiary); color: var(--text-primary); }
                 .modal-btn.submit { background: var(--accent-primary); color: var(--bg-primary); position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; border: 1px solid transparent; }
-                .modal-btn.submit::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out; }
-                .modal-btn.submit:not(:disabled):hover { color: #fff; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
-                [data-theme='dark'] .modal-btn.submit:not(:disabled):hover { color: #fff; }
-                .modal-btn.submit:not(:disabled):hover::before { opacity: 1; }
                 .modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
                 /* === Custom Select Dropdown === */
@@ -1065,9 +1072,6 @@ const App = () => {
                 .custom-select-option:last-child {
                     padding-bottom: 16px;
                 }
-                .custom-select-option:hover {
-                    background-color: var(--bg-secondary);
-                }
                 .custom-select-option.selected {
                     background-color: var(--bg-tertiary);
                     font-weight: 500;
@@ -1078,7 +1082,6 @@ const App = () => {
                 .quiz-view .message-content { font-family: var(--font-heading); font-size: 21px; }
                 .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0 16px 48px; }
                 .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; text-align: left; transition: all 0.2s ease-out; font-family: var(--font-heading); font-size: 1.1rem; }
-                .quiz-option-btn:not(:disabled):hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
                 .quiz-option-btn.correct { background-color: var(--correct-color); color: white; border-color: var(--correct-color); }
                 .quiz-option-btn.incorrect { background-color: var(--incorrect-color); color: white; border-color: var(--incorrect-color); }
                 .quiz-option-btn:disabled { cursor: not-allowed; opacity: 0.8; }
@@ -1098,6 +1101,8 @@ const App = () => {
                     .scroll-to-top-btn { right: 20px; bottom: 20px; }
                     .quiz-options { grid-template-columns: 1fr; margin-left: 0; }
                     .quiz-explanation { margin-left: 0; }
+                    .role-user .message-content { font-size: 1rem; }
+                    .role-model .message-content { font-size: 0.95rem; }
                 }
             `}</style>
 
