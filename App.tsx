@@ -1,6 +1,5 @@
 
 
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked } from 'marked';
 
@@ -33,6 +32,10 @@ type QuizQuestion = {
     options: string[];
     correctAnswerIndex: number;
     explanation: string;
+};
+type SelectOption = {
+  value: number | string;
+  label: string;
 };
 
 
@@ -152,48 +155,115 @@ const ChatWelcomeScreen = ({ suggestions, onSendMessage }: { suggestions: string
     </div>
 );
 
-const QuizModal = ({ onStart, onCancel, topic, setTopic, numQuestions, setNumQuestions }: { onStart: (e: React.FormEvent) => void, onCancel: () => void, topic: string, setTopic: (t: string) => void, numQuestions: number, setNumQuestions: (n: number) => void }) => (
-    <div className="modal-overlay">
-        <div className="modal-content">
-            <h2>Start a Quiz</h2>
-            <p>Enter a topic and select the number of questions for your quiz.</p>
-            <form onSubmit={onStart}>
-                <div className="modal-form-group">
-                    <label htmlFor="quiz-topic">Topic</label>
-                    <input
-                        id="quiz-topic"
-                        type="text"
-                        className="modal-input"
-                        value={topic}
-                        onChange={(e) => setTopic(e.target.value)}
-                        placeholder="e.g., Newton's Laws of Motion"
-                        aria-label="Quiz topic"
-                        autoFocus
-                    />
-                </div>
-                <div className="modal-form-group">
-                    <label htmlFor="num-questions">Number of Questions</label>
-                    <select
-                        id="num-questions"
-                        className="modal-select"
-                        value={numQuestions}
-                        onChange={(e) => setNumQuestions(Number(e.target.value))}
-                        aria-label="Number of questions"
-                    >
-                        <option value="5">5</option>
-                        <option value="10">10</option>
-                        <option value="15">15</option>
-                        <option value="20">20</option>
-                    </select>
-                </div>
-                <div className="modal-buttons">
-                    <button type="button" className="modal-btn cancel" onClick={onCancel}>Cancel</button>
-                    <button type="submit" className="modal-btn submit" disabled={!topic.trim()}>Start Quiz</button>
-                </div>
-            </form>
-        </div>
+const CustomSelect = ({ options, value, onChange, label, id }: {
+  options: SelectOption[];
+  value: SelectOption;
+  onChange: (option: SelectOption) => void;
+  label: string;
+  id: string;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSelect = (option: SelectOption) => {
+    onChange(option);
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="modal-form-group">
+      <label htmlFor={id} className="custom-select-label">{label}</label>
+      <div className="custom-select-container" ref={selectRef}>
+        <button
+          id={id}
+          type="button"
+          className={`custom-select-trigger ${isOpen ? 'open' : ''}`}
+          onClick={() => setIsOpen(!isOpen)}
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+        >
+          <span>{value.label}</span>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="chevron-icon">
+            <path d="m6 8 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        {isOpen && (
+          <ul className="custom-select-options" role="listbox">
+            {options.map((option) => (
+              <li
+                key={option.value}
+                className={`custom-select-option ${value.value === option.value ? 'selected' : ''}`}
+                onClick={() => handleSelect(option)}
+                role="option"
+                aria-selected={value.value === option.value}
+              >
+                {option.label}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
-);
+  );
+};
+
+
+const QuizModal = ({ onStart, onCancel, topic, setTopic, numQuestions, setNumQuestions }: { onStart: (e: React.FormEvent) => void, onCancel: () => void, topic: string, setTopic: (t: string) => void, numQuestions: number, setNumQuestions: (n: number) => void }) => {
+    
+    const quizNumOptions = [
+        { value: 5, label: '5 Questions' },
+        { value: 10, label: '10 Questions' },
+        { value: 15, label: '15 Questions' },
+        { value: 20, label: '20 Questions' },
+    ];
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal-content">
+                <h2>Start a Quiz</h2>
+                <p>Enter a topic and select the number of questions for your quiz.</p>
+                <form onSubmit={onStart}>
+                    <div className="modal-form-group">
+                        <label htmlFor="quiz-topic">Topic</label>
+                        <input
+                            id="quiz-topic"
+                            type="text"
+                            className="modal-input"
+                            value={topic}
+                            onChange={(e) => setTopic(e.target.value)}
+                            placeholder="e.g., Newton's Laws of Motion"
+                            aria-label="Quiz topic"
+                            autoFocus
+                        />
+                    </div>
+                    
+                    <CustomSelect
+                        id="num-questions"
+                        label="Number of Questions"
+                        options={quizNumOptions}
+                        value={quizNumOptions.find(opt => opt.value === numQuestions)!}
+                        onChange={(option) => setNumQuestions(option.value as number)}
+                    />
+
+                    <div className="modal-buttons">
+                        <button type="button" className="modal-btn cancel" onClick={onCancel}>Cancel</button>
+                        <button type="submit" className="modal-btn submit" disabled={!topic.trim()}>Start Quiz</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
 
 const QuizView = ({ question, onAnswerSelect, selectedAnswer }: { question: QuizQuestion; onAnswerSelect: (index: number) => void; selectedAnswer: number | null }) => {
     const hasAnswered = selectedAnswer !== null;
@@ -901,16 +971,113 @@ const App = () => {
                 .modal-content p { color: var(--text-secondary); margin-bottom: 24px; }
                 .modal-form-group { margin-bottom: 16px; }
                 .modal-form-group label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); font-family: var(--font-heading); font-weight: 500; }
-                .modal-input, .modal-select { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-family: var(--font-heading); font-size: 1.1rem; }
+                .modal-input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-family: var(--font-heading); font-size: 1.2rem; }
                 .modal-buttons { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
                 .modal-btn { padding: 12px 24px; border: none; border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; transition: opacity 0.2s; font-size: 1rem; }
                 .modal-btn.cancel { background: var(--bg-tertiary); color: var(--text-primary); }
-                .modal-btn.submit { background: var(--accent-primary); color: var(--bg-primary); }
+                .modal-btn.submit { background: var(--accent-primary); color: var(--bg-primary); position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; border: 1px solid transparent; }
+                .modal-btn.submit::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out; }
+                .modal-btn.submit:not(:disabled):hover { color: #fff; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
+                [data-theme='dark'] .modal-btn.submit:not(:disabled):hover { color: #fff; }
+                .modal-btn.submit:not(:disabled):hover::before { opacity: 1; }
                 .modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+                /* === Custom Select Dropdown === */
+                .custom-select-label {
+                    font-size: 0.9rem;
+                    color: var(--text-secondary);
+                    font-family: var(--font-heading);
+                    font-weight: 500;
+                }
+                .custom-select-container {
+                    position: relative;
+                    font-family: var(--font-heading);
+                }
+                .custom-select-trigger {
+                    width: 100%;
+                    background: var(--bg-primary);
+                    border: 1px solid var(--border-color);
+                    border-radius: 12px;
+                    padding: 12px 16px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    cursor: pointer;
+                    text-align: left;
+                    font-size: 1.2rem;
+                    color: var(--text-primary);
+                    transition: all 0.2s ease-out;
+                }
+                .custom-select-trigger:focus {
+                    outline: none;
+                    border-color: var(--accent-primary);
+                    box-shadow: 0 0 0 2px rgba(136, 215, 228, 0.3);
+                }
+                .custom-select-trigger.open {
+                    border-bottom-left-radius: 0;
+                    border-bottom-right-radius: 0;
+                    border-color: var(--accent-primary);
+                }
+                .custom-select-trigger .chevron-icon {
+                    transition: transform 0.2s ease-out;
+                    transform: rotate(0deg);
+                }
+                .custom-select-trigger.open .chevron-icon {
+                    transform: rotate(180deg);
+                }
+                .custom-select-options {
+                    position: absolute;
+                    top: calc(100% - 1px);
+                    left: 0;
+                    right: 0;
+                    z-index: 101;
+                    background: var(--bg-primary);
+                    border: 1px solid var(--accent-primary);
+                    border-top: none;
+                    border-bottom-left-radius: 12px;
+                    border-bottom-right-radius: 12px;
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                    max-height: 200px;
+                    overflow-y: auto;
+                    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+                    animation: fadeIn 0.1s ease-out;
+                }
+                .custom-select-options::before {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 16px;
+                    right: 16px;
+                    height: 1px;
+                    background: var(--border-color);
+                }
+                .custom-select-option {
+                    padding: 12px 16px;
+                    cursor: pointer;
+                    font-size: 1.2rem;
+                    transition: background-color 0.2s ease-out;
+                }
+                .custom-select-option:first-child {
+                    padding-top: 16px;
+                }
+                .custom-select-option:last-child {
+                    padding-bottom: 16px;
+                }
+                .custom-select-option:hover {
+                    background-color: var(--bg-secondary);
+                }
+                .custom-select-option.selected {
+                    background-color: var(--bg-tertiary);
+                    font-weight: 500;
+                }
+
+                /* Quiz View */
                 .quiz-view { margin-top: 24px; animation: fadeIn 0.5s ease-out; }
                 .quiz-view .message-content { font-family: var(--font-heading); font-size: 21px; }
                 .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0 16px 48px; }
-                .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; text-align: left; transition: all 0.2s ease-out; font-family: var(--font-heading); font-size: 1rem; }
+                .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; text-align: left; transition: all 0.2s ease-out; font-family: var(--font-heading); font-size: 1.1rem; }
                 .quiz-option-btn:not(:disabled):hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
                 .quiz-option-btn.correct { background-color: var(--correct-color); color: white; border-color: var(--correct-color); }
                 .quiz-option-btn.incorrect { background-color: var(--incorrect-color); color: white; border-color: var(--incorrect-color); }
@@ -940,6 +1107,7 @@ const App = () => {
                 topic={quizTopic}
                 setTopic={setQuizTopic}
                 numQuestions={quizNumQuestions}
+                // FIX: Pass the correct state setter `setQuizNumQuestions` to the `setNumQuestions` prop.
                 setNumQuestions={setQuizNumQuestions}
             />}
 
