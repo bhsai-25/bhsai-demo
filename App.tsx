@@ -1,5 +1,7 @@
+
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { marked } from 'marked';
+import { marked, Renderer } from 'marked';
 
 // Helper function to convert file to base64
 const fileToGenerativePart = async (file: File) => {
@@ -12,6 +14,46 @@ const fileToGenerativePart = async (file: File) => {
         inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
     };
 };
+
+// === Enhanced Markdown Rendering for Code Blocks ===
+const renderer = new Renderer();
+const originalCodeRenderer = renderer.code;
+const copyIconPath = "M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2";
+const checkIconPath = "M20 6L9 17l-5-5";
+
+// FIX: The signature for renderer.code has changed in a newer version of `marked`.
+// It now accepts a single object with `text`, `lang`, and `escaped` properties.
+renderer.code = function({ text: code, lang: infostring, escaped }) {
+    const originalHtml = originalCodeRenderer.call(this, { text: code, lang: infostring, escaped });
+    // Escape quotes for the data-code attribute
+    const safeCode = code.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+    const copySVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="${copyIconPath}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    const checkSVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="${checkIconPath}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+    const buttonHtml = `
+      <button 
+        class="copy-code-btn" 
+        data-code="${safeCode}"
+        aria-label="Copy code"
+        onclick="
+          navigator.clipboard.writeText(this.dataset.code);
+          this.innerHTML = \`${checkSVG}<span>Copied!</span>\`;
+          this.setAttribute('aria-label', 'Code copied');
+          setTimeout(() => { 
+            this.innerHTML = \`${copySVG}<span>Copy</span>\`;
+            this.setAttribute('aria-label', 'Copy code');
+          }, 2000);
+        "
+      >
+        ${copySVG}
+        <span>Copy</span>
+      </button>
+    `;
+    return `<div class="code-block-wrapper">${originalHtml}${buttonHtml}</div>`;
+};
+marked.use({ renderer });
+
 
 // === Type Definitions ===
 interface GroundingChunk { web: { uri: string; title: string; } }
@@ -71,7 +113,7 @@ const TypingIndicator = () => (
     </div>
 );
 
-const Message = React.memo(({ msg, isLastMessage, isLoading }: { msg: ChatMessage; isLastMessage: boolean; isLoading: boolean }) => {
+const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: ChatMessage; msgIndex: number; isLastMessage: boolean; isLoading: boolean }) => {
     const [copied, setCopied] = useState(false);
     const handleCopy = () => {
         navigator.clipboard.writeText(msg.text);
@@ -81,9 +123,22 @@ const Message = React.memo(({ msg, isLastMessage, isLoading }: { msg: ChatMessag
 
     const showTyping = isLoading && isLastMessage && msg.role === 'model';
     
-    // By memoizing the parsed markdown, we prevent expensive re-renders 
-    // on every stream chunk.
-    const htmlContent = useMemo(() => marked.parse(msg.text) as string, [msg.text]);
+    // By memoizing the parsed markdown, we prevent expensive re-renders on every stream chunk.
+    const htmlContent = useMemo(() => {
+        let processedText = msg.text;
+        // Check for sources to avoid processing every message
+        if (msg.sources && msg.sources.length > 0 && /\[\d+\]/.test(processedText)) {
+            processedText = processedText.replace(/\[(\d+)\]/g, (match, numberStr) => {
+                const index = parseInt(numberStr, 10) - 1;
+                if (msg.sources && index >= 0 && index < msg.sources.length) {
+                    // This creates an anchor link. The href will be the ID of the source list item.
+                    return `<sup><a href="#source-${msgIndex}-${index}" class="source-link" title="${msg.sources[index].web.title}">${numberStr}</a></sup>`;
+                }
+                return match;
+            });
+        }
+        return marked.parse(processedText) as string;
+    }, [msg.text, msg.sources, msgIndex]);
 
     return (
         <div className={`chat-message role-${msg.role}`}>
@@ -99,13 +154,13 @@ const Message = React.memo(({ msg, isLastMessage, isLoading }: { msg: ChatMessag
                         <div className="message-sources">
                             <hr />
                             <p><strong>Sources from the web:</strong></p>
-                            <ol>{msg.sources.map((source, i) => (<li key={i}><a href={source.web.uri} target="_blank" rel="noopener noreferrer">{source.web.title || new URL(source.web.uri).hostname}</a></li>))}</ol>
+                            <ol>{msg.sources.map((source, i) => (<li key={i} id={`source-${msgIndex}-${i}`}><a href={source.web.uri} target="_blank" rel="noopener noreferrer">{source.web.title || new URL(source.web.uri).hostname}</a></li>))}</ol>
                         </div>
                     )}
                 </div>
                 {msg.role === 'model' && msg.text && !showTyping && (
-                     <button onClick={handleCopy} className="copy-btn" aria-label="Copy message">
-                         {copied ? <Icon path="M20 6L9 17l-5-5" size={16} /> : <Icon path="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2" size={16} />}
+                     <button onClick={handleCopy} className="copy-btn" aria-label="Copy entire message">
+                         {copied ? <Icon path={checkIconPath} size={16} /> : <Icon path={copyIconPath} size={16} />}
                      </button>
                 )}
             </div>
@@ -300,6 +355,50 @@ const QuizView = ({ question, onAnswerSelect, selectedAnswer }: { question: Quiz
     );
 };
 
+const QuizProgressBar = ({ current, total }: { current: number; total: number }) => (
+    <div className="quiz-progress-bar">
+        <div className="progress-text">Question {current} of {total}</div>
+        <div className="progress-track">
+            <div className="progress-fill" style={{ width: `${(current / total) * 100}%` }}></div>
+        </div>
+    </div>
+);
+
+const QuizResults = ({ score, total, onTryAgain, onFinish }: { score: number; total: number; onTryAgain: () => void; onFinish: () => void; }) => {
+    const percentage = total > 0 ? (score / total) * 100 : 0;
+    const radius = 52;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (percentage / 100) * circumference;
+
+    return (
+        <div className="quiz-results-view">
+            <h2 className="results-title">Quiz Complete!</h2>
+            <div className="score-chart">
+                <svg width="120" height="120" viewBox="0 0 120 120">
+                    <circle className="score-chart-track" cx="60" cy="60" r={radius} />
+                    <circle
+                        className="score-chart-progress"
+                        cx="60"
+                        cy="60"
+                        r={radius}
+                        strokeDasharray={circumference}
+                        strokeDashoffset={offset}
+                    />
+                </svg>
+                <div className="score-text">
+                    <strong>{score}</strong>
+                    <span>/ {total}</span>
+                </div>
+            </div>
+            <p className="score-summary">You answered {score} out of {total} questions correctly.</p>
+            <div className="results-actions">
+                <button className="results-btn finish" onClick={onFinish}>Back to Chat</button>
+                <button className="results-btn try-again" onClick={onTryAgain}>Try Another Quiz</button>
+            </div>
+        </div>
+    );
+};
+
 
 const App = () => {
     // === State Management ===
@@ -348,7 +447,6 @@ const App = () => {
     const [isGoogleSearchEnabled, setGoogleSearchEnabled] = useState(true);
     const [isRecording, setIsRecording] = useState(false);
     const [showScrollTop, setShowScrollTop] = useState(false);
-    const [activeTab, setActiveTab] = useState<'chat' | 'history' | 'actions' | 'settings'>('chat');
     
     // Quiz State
     const [showQuizModal, setShowQuizModal] = useState(false);
@@ -359,6 +457,8 @@ const App = () => {
     const [userAnswers, setUserAnswers] = useState<(number | null)[]>([]);
     const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
     const [isQuizModeActive, setIsQuizModeActive] = useState(false);
+    const [quizStage, setQuizStage] = useState<'question' | 'results'>('question');
+    const [quizScore, setQuizScore] = useState(0);
 
 
     const chatEndRef = useRef<HTMLDivElement>(null);
@@ -631,7 +731,6 @@ const App = () => {
             }
         }));
         setActiveChatIds(prev => ({ ...prev, [targetClass]: newChatId }));
-        setActiveTab('chat');
     };
 
     const handleSelectChat = (chatId: string) => {
@@ -639,7 +738,6 @@ const App = () => {
         setIsQuizModeActive(false); // Exit quiz mode when switching chats
         setQuizQuestions([]);
         setActiveChatIds(prev => ({ ...prev, [selectedClass]: chatId }));
-        setActiveTab('chat');
     };
 
     const handleDeleteChat = (chatIdToDelete: string) => {
@@ -665,7 +763,6 @@ const App = () => {
         if (!selectedClass || !activeChatId || currentMessages.length < 2 || isLoading) return;
 
         setIsLoading(true);
-        setActiveTab('chat');
         const conversation = currentMessages.map(m => `${m.role === 'user' ? 'Student' : 'Assistant'}: ${m.text}`).join('\n');
         
         addNewMessage({ role: 'model', text: '' });
@@ -740,7 +837,6 @@ const App = () => {
 
         setIsLoading(true);
         setShowQuizModal(false);
-        setActiveTab('chat');
         addNewMessage({ role: 'user', text: `Start a quiz on: ${quizTopic}` });
         addNewMessage({ role: 'model', text: '' }); // Placeholder for loading
         
@@ -765,11 +861,12 @@ const App = () => {
                  throw new Error('The AI could not generate a quiz for this topic.');
             }
 
-            updateLastMessage({ role: 'model', text: "Great! Let's test your knowledge. Here is the first question." });
+            updateLastMessage({ role: 'model', text: "Great! Let's test your knowledge. Starting the quiz now..." });
             setQuizQuestions(data.quiz);
             setUserAnswers(new Array(data.quiz.length).fill(null));
             setCurrentQuestionIndex(0);
             setSelectedAnswer(null);
+            setQuizStage('question');
             setIsQuizModeActive(true);
 
         } catch (error) {
@@ -792,23 +889,24 @@ const App = () => {
                 setCurrentQuestionIndex(prev => prev + 1);
                 setSelectedAnswer(null);
             } else {
-                handleEndQuiz(newAnswers);
+                // End of quiz, calculate score and move to results view
+                let score = 0;
+                quizQuestions.forEach((q, i) => {
+                    if (q.correctAnswerIndex === newAnswers[i]) {
+                        score++;
+                    }
+                });
+                setQuizScore(score);
+                setQuizStage('results');
+                
+                // Add score message to chat history in the background
+                const scoreMessage = `## Quiz Complete!\n\n**Topic: ${quizTopic}**\n**Final score: ${score} out of ${quizQuestions.length}**`;
+                addNewMessage({ role: 'model', text: scoreMessage });
             }
         }, 2500); // Wait 2.5s to show feedback before moving on
     };
 
-    const handleEndQuiz = (finalAnswers: (number | null)[]) => {
-        let score = 0;
-        quizQuestions.forEach((q, i) => {
-            if (q.correctAnswerIndex === finalAnswers[i]) {
-                score++;
-            }
-        });
-
-        const scoreMessage = `## Quiz Complete!\n\n**Your final score is: ${score} out of ${quizQuestions.length}**\n\nKeep up the great work! If you want to try another quiz, just click "Start Quiz" again.`;
-        addNewMessage({ role: 'model', text: scoreMessage });
-
-        // Reset quiz state
+    const handleFinishQuiz = () => {
         setIsQuizModeActive(false);
         setQuizQuestions([]);
         setUserAnswers([]);
@@ -818,7 +916,7 @@ const App = () => {
 
 
     return (
-        <div className="app-container">
+        <div className={`app-container ${isQuizModeActive ? 'quiz-active' : ''}`}>
             <style>{`
                 /* === Base & Theme === */
                 :root {
@@ -839,7 +937,6 @@ const App = () => {
                     --correct-color: #66bb6a; --incorrect-color: #ef5350;
                 }
                 * { box-sizing: border-box; margin: 0; padding: 0; }
-                html, body, #root, .app-container { height: 100%; }
                 body { background-color: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); transition: background-color 0.3s, color 0.3s; overflow: hidden; }
                 .gemini-gradient-text { background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
@@ -866,9 +963,9 @@ const App = () => {
                 .creator-credit { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; }
 
                 /* === Main Layout === */
-                .app-container { display: flex; }
-                .sidebar { width: 260px; background-color: var(--bg-secondary); padding: 24px; display: flex; flex-direction: column; border-right: 1px solid var(--border-color); transform: translateX(0); z-index: 10; }
-                .chat-main { flex: 1; display: flex; flex-direction: column; position: relative; background-color: var(--bg-primary); }
+                .app-container { display: flex; height: 100vh; }
+                .sidebar { width: 260px; background-color: var(--bg-secondary); padding: 24px; display: flex; flex-direction: column; border-right: 1px solid var(--border-color); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), margin-left 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); transform: translateX(0); }
+                .chat-main { flex: 1; display: flex; flex-direction: column; position: relative; background-color: var(--bg-primary); transition: width 0.3s ease-in-out; }
                 
                 /* === Sidebar === */
                 .sidebar-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
@@ -895,17 +992,18 @@ const App = () => {
                 [data-theme='dark'] input:checked + .slider:before { background-color: var(--bg-primary); }
                 input:checked + .slider:before { transform: translateX(18px); }
 
-                /* === Hover Effects (Desktop Only) === */
+                /* === Futuristic Hover Effects (Desktop Only) === */
+                .class-button::before, .sidebar-btn::before, .modal-btn.submit::before {
+                     content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out;
+                }
+                
                 @media (hover: hover) {
-                    .class-button::before, .sidebar-btn::before, .modal-btn.submit::before {
-                         content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out;
-                    }
                     .sidebar-header:hover .sidebar-title { transform: scale(1.05); background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
                     .sidebar-header:hover svg { transform: scale(1.1); filter: drop-shadow(0 0 10px rgba(136, 215, 228, 0.4)); }
                     .sidebar-header:hover .logo-paths { stroke: url(#gemini-gradient-svg); }
-                    .class-button:hover, .sidebar-btn:not(:disabled):hover, .mobile-page-btn:not(:disabled):hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
-                    [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover, [data-theme='dark'] .mobile-page-btn:not(:disabled):hover { color: #fff; }
-                    .class-button:hover::before, .sidebar-btn:not(:disabled):hover::before, .mobile-page-btn:not(:disabled):hover::before { opacity: 1; }
+                    .class-button:hover, .sidebar-btn:not(:disabled):hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
+                    [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover { color: #fff; }
+                    .class-button:hover::before, .sidebar-btn:not(:disabled):hover::before { opacity: 1; }
                     .history-item:hover { background-color: var(--bg-tertiary); }
                     .history-item:hover .history-delete-btn { opacity: 1; }
                     .chat-message:hover .copy-btn { visibility: visible; opacity: 1; }
@@ -937,6 +1035,13 @@ const App = () => {
                 .copy-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s ease-out; visibility: hidden; opacity: 0; }
                 .message-sources { font-size: 0.9rem; margin-top: 16px; color: var(--text-secondary); text-align: left; }
                 .message-sources hr { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
+                .source-link { text-decoration: none; color: var(--accent-primary); font-weight: 600; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 4px; }
+
+                /* Code Block Enhancements */
+                .code-block-wrapper { position: relative; }
+                .copy-code-btn { position: absolute; top: 8px; right: 8px; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 4px 8px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.8rem; opacity: 0; transition: opacity 0.2s ease-out; }
+                .code-block-wrapper:hover .copy-code-btn { opacity: 1; }
+                .copy-code-btn:hover { background: var(--border-color); color: var(--text-primary); }
 
                 /* Chat Welcome Screen */
                 .chat-welcome-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; animation: fadeIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
@@ -992,22 +1097,104 @@ const App = () => {
                 .modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
                 /* === Custom Select Dropdown === */
-                .custom-select-label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); font-family: var(--font-heading); font-weight: 500; }
-                .custom-select-container { position: relative; font-family: var(--font-heading); }
-                .custom-select-trigger { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; text-align: left; font-size: 1.2rem; color: var(--text-primary); transition: all 0.2s ease-out; }
-                .custom-select-trigger:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 2px rgba(136, 215, 228, 0.3); }
-                .custom-select-trigger.open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-color: var(--accent-primary); }
-                .custom-select-trigger .chevron-icon { transition: transform 0.2s ease-out; transform: rotate(0deg); }
-                .custom-select-trigger.open .chevron-icon { transform: rotate(180deg); }
-                .custom-select-options { position: absolute; top: calc(100% - 1px); left: 0; right: 0; z-index: 101; background: var(--bg-primary); border: 1px solid var(--accent-primary); border-top: none; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto; box-shadow: 0 8px 16px rgba(0,0,0,0.1); animation: fadeIn 0.1s ease-out; }
-                .custom-select-options::before { content: ''; position: absolute; top: 0; left: 16px; right: 16px; height: 1px; background: var(--border-color); }
-                .custom-select-option { padding: 12px 16px; cursor: pointer; font-size: 1.2rem; transition: background-color 0.2s ease-out; }
-                .custom-select-option:first-child { padding-top: 16px; }
-                .custom-select-option:last-child { padding-bottom: 16px; }
-                .custom-select-option.selected { background-color: var(--bg-tertiary); font-weight: 500; }
+                .custom-select-label {
+                    font-size: 0.9rem;
+                    color: var(--text-secondary);
+                    font-family: var(--font-heading);
+                    font-weight: 500;
+                }
+                .custom-select-container {
+                    position: relative;
+                    font-family: var(--font-heading);
+                }
+                .custom-select-trigger {
+                    width: 100%;
+                    background: var(--bg-primary);
+                    border: 1px solid var(--border-color);
+                    border-radius: 12px;
+                    padding: 12px 16px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    cursor: pointer;
+                    text-align: left;
+                    font-size: 1.2rem;
+                    color: var(--text-primary);
+                    transition: all 0.2s ease-out;
+                }
+                .custom-select-trigger:focus {
+                    outline: none;
+                    border-color: var(--accent-primary);
+                    box-shadow: 0 0 0 2px rgba(136, 215, 228, 0.3);
+                }
+                .custom-select-trigger.open {
+                    border-bottom-left-radius: 0;
+                    border-bottom-right-radius: 0;
+                    border-color: var(--accent-primary);
+                }
+                .custom-select-trigger .chevron-icon {
+                    transition: transform 0.2s ease-out;
+                    transform: rotate(0deg);
+                }
+                .custom-select-trigger.open .chevron-icon {
+                    transform: rotate(180deg);
+                }
+                .custom-select-options {
+                    position: absolute;
+                    top: calc(100% - 1px);
+                    left: 0;
+                    right: 0;
+                    z-index: 101;
+                    background: var(--bg-primary);
+                    border: 1px solid var(--accent-primary);
+                    border-top: none;
+                    border-bottom-left-radius: 12px;
+                    border-bottom-right-radius: 12px;
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                    max-height: 200px;
+                    overflow-y: auto;
+                    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+                    animation: fadeIn 0.1s ease-out;
+                }
+                .custom-select-options::before {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 16px;
+                    right: 16px;
+                    height: 1px;
+                    background: var(--border-color);
+                }
+                .custom-select-option {
+                    padding: 12px 16px;
+                    cursor: pointer;
+                    font-size: 1.2rem;
+                    transition: background-color 0.2s ease-out;
+                }
+                .custom-select-option:first-child {
+                    padding-top: 16px;
+                }
+                .custom-select-option:last-child {
+                    padding-bottom: 16px;
+                }
+                .custom-select-option.selected {
+                    background-color: var(--bg-tertiary);
+                    font-weight: 500;
+                }
+
+                /* === Immersive Quiz Mode === */
+                .app-container.quiz-active .sidebar { margin-left: -260px; }
+                .quiz-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-primary); z-index: 150; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 24px; animation: fadeIn 0.3s ease-out; }
+                .quiz-container { width: 100%; max-width: 800px; height: 100%; display: flex; flex-direction: column; }
+                .quiz-progress-bar { padding: 16px 0; width: 100%; }
+                .quiz-progress-bar .progress-text { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; }
+                .quiz-progress-bar .progress-track { width: 100%; height: 6px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden; }
+                .quiz-progress-bar .progress-fill { height: 100%; background: var(--gemini-gradient); border-radius: 3px; transition: width 0.3s ease-out; }
 
                 /* Quiz View */
-                .quiz-view { margin-top: 24px; animation: fadeIn 0.5s ease-out; }
+                .quiz-view { flex-grow: 1; overflow-y: auto; animation: fadeIn 0.5s ease-out; }
                 .quiz-view .message-content { font-family: var(--font-heading); font-size: 21px; }
                 .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0 16px 48px; }
                 .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; text-align: left; transition: all 0.2s ease-out; font-family: var(--font-heading); font-size: 1.1rem; }
@@ -1016,96 +1203,41 @@ const App = () => {
                 .quiz-option-btn:disabled { cursor: not-allowed; opacity: 0.8; }
                 .quiz-explanation { margin-left: 48px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 0.9rem; animation: fadeIn 0.3s ease-out; }
                 
-                .mobile-nav, .mobile-page-view { display: none; }
+                /* Quiz Results */
+                .quiz-results-view { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; animation: fadeIn 0.5s ease-out; }
+                .results-title { font-family: var(--font-heading); font-size: 2.5rem; margin-bottom: 24px; }
+                .score-chart { position: relative; width: 120px; height: 120px; margin-bottom: 24px; }
+                .score-chart svg { transform: rotate(-90deg); }
+                .score-chart-track { fill: none; stroke: var(--bg-tertiary); stroke-width: 10; }
+                .score-chart-progress { fill: none; stroke: url(#gemini-gradient-svg); stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease-out; }
+                .score-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family: var(--font-heading); }
+                .score-text strong { font-size: 2rem; color: var(--text-primary); }
+                .score-text span { font-size: 1rem; color: var(--text-secondary); }
+                .score-summary { font-size: 1.1rem; margin-bottom: 32px; }
+                .results-actions { display: flex; gap: 16px; }
+                .results-btn { padding: 12px 24px; border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; font-size: 1rem; transition: all 0.2s ease-out; }
+                .results-btn.finish { background: var(--bg-tertiary); color: var(--text-primary); }
+                .results-btn.try-again { background: var(--accent-primary); color: var(--bg-primary); border-color: var(--accent-primary); }
 
-                /* === Responsive Design: Mobile & Tablet Overhaul === */
+
+                /* === Responsive Design === */
                 @media (max-width: 768px) {
-                    .sidebar { display: none; }
-                    .chat-main { height: 100%; }
-                    .chat-area { padding: 16px 16px 100px 16px; }
-                    .input-area-container { padding: 8px 12px 12px; }
-
-                    /* Chat Messages */
-                    .role-user .message-content { font-size: 1rem; max-width: 100%; }
-                    .role-model .message-content { font-size: 0.95rem; max-width: 100%; }
-                    .message-content { font-family: var(--font-body); }
-                    .chat-message.role-model { max-width: 95%; }
-
-                    /* Welcome Screens */
-                    .title-main { font-size: 2.5rem; }
-                    .chat-welcome-screen h1 { font-size: 2.5rem; }
-                    .chat-welcome-screen .prompt-suggestions { max-width: 100%; }
-                    .initial-class-selector { gap: 12px; }
-                    .creator-credit { bottom: 12px; }
-                    
-                    /* Scroll to top */
-                    .scroll-to-top-btn { right: 16px; bottom: 100px; }
-                    
-                    /* Quiz */
+                    .app-container.quiz-active .sidebar { margin-left: 0; transform: translateX(-100%); }
+                    .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; transform: translateX(-100%); }
+                    .sidebar.open { transform: translateX(0); box-shadow: 0 0 20px rgba(0,0,0,0.2); }
+                    .chat-header { display: flex; }
+                    .chat-area, .input-area-container { padding-left: 16px; padding-right: 16px; }
+                    .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 99; display: none; }
+                    .sidebar.open + .chat-main .overlay { display: block; }
+                    .role-user .message-content, .role-model .message-content { max-width: 95%; }
+                    .chat-welcome-screen h1 { font-size: 3rem; }
+                    .title-main { font-size: 3.5rem; }
+                    .scroll-to-top-btn { right: 20px; bottom: 20px; }
                     .quiz-options { grid-template-columns: 1fr; margin-left: 0; }
                     .quiz-explanation { margin-left: 0; }
-
-                    /* Mobile Tab Navigation */
-                    .mobile-nav {
-                        display: flex;
-                        position: fixed;
-                        bottom: 0;
-                        left: 0;
-                        right: 0;
-                        height: 70px;
-                        background-color: var(--bg-secondary);
-                        border-top: 1px solid var(--border-color);
-                        justify-content: space-around;
-                        align-items: flex-start;
-                        padding-top: 8px;
-                        z-index: 100;
-                    }
-                    .mobile-nav-btn {
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        gap: 4px;
-                        background: none;
-                        border: none;
-                        color: var(--text-secondary);
-                        font-family: var(--font-heading);
-                        font-size: 0.75rem;
-                        padding: 4px 8px;
-                        border-radius: 8px;
-                        transition: color 0.2s ease-out;
-                    }
-                    .mobile-nav-btn.active { color: var(--text-primary); }
-                    .mobile-nav-btn.active .gemini-gradient-text { font-weight: 500; }
-                    
-                    /* Mobile Page Views */
-                    .mobile-page-view {
-                        display: flex;
-                        flex-direction: column;
-                        gap: 16px;
-                        padding: 16px;
-                        height: 100%;
-                        animation: fadeIn 0.3s ease-out;
-                    }
-                    .mobile-page-header {
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: center;
-                        padding-bottom: 12px;
-                        border-bottom: 1px solid var(--border-color);
-                    }
-                    .mobile-page-header h1 { font-family: var(--font-heading); font-size: 1.8rem; }
-                    .mobile-page-btn {
-                        width: 100%; padding: 16px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 1rem; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 12px; font-family: var(--font-heading); font-weight: 500; position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out;
-                    }
-                    .mobile-history-container {
-                        display: flex; flex-direction: column; gap: 8px; flex-grow: 1;
-                    }
-                     .mobile-settings-group {
-                        background: var(--bg-secondary);
-                        padding: 8px 16px;
-                        border-radius: 12px;
-                        border: 1px solid var(--border-color);
-                    }
+                    .role-user .message-content { font-size: 1rem; }
+                    .role-model .message-content { font-size: 0.95rem; }
+                    .quiz-overlay { padding: 16px; }
                 }
             `}</style>
 
@@ -1167,89 +1299,44 @@ const App = () => {
             </div>
 
             <div className="chat-main">
+                 {isSidebarOpen && <div className="overlay" onClick={() => setSidebarOpen(false)}></div>}
+                <div className="chat-header">
+                     <button className="menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
+                        <Icon path="M3 12h18M3 6h18M3 18h18" />
+                    </button>
+                    <h2 className="sidebar-title">bhsAI</h2>
+                </div>
+
                 <div className="chat-area" ref={chatAreaRef}>
                     {selectedClass === null ? <InitialClassSelector onSelectClass={setSelectedClass} /> :
-                        activeTab === 'chat' ? (
-                            <>
-                                {currentMessages.length === 0 && !isLoading ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
-                                    (
-                                        currentMessages.map((msg, index) => (
-                                            <Message 
-                                                key={index} 
-                                                msg={msg} 
-                                                isLastMessage={index === currentMessages.length - 1}
-                                                isLoading={isLoading}
-                                            />
-                                        ))
-                                    )
-                                }
-                                {isQuizModeActive && quizQuestions.length > 0 && (
-                                    <QuizView
-                                        question={quizQuestions[currentQuestionIndex]}
-                                        onAnswerSelect={handleAnswerSelect}
-                                        selectedAnswer={selectedAnswer}
-                                    />
-                                )}
-                            </>
-                        ) : activeTab === 'history' ? (
-                            <div className="mobile-page-view">
-                                <div className="mobile-page-header">
-                                    <h1>History</h1>
-                                    <button className="sidebar-btn" style={{width:'auto', padding:'8px 12px'}} onClick={() => handleNewChat()}>
-                                        <Icon path="M12 5v14m-7-7h14" size={16} /> New Chat
-                                    </button>
-                                </div>
-                                <div className="mobile-history-container">
-                                    {Object.keys(chatHistories[selectedClass] || {}).length > 0 ? Object.entries(chatHistories[selectedClass] || {}).map(([chatId, chat]) => (
-                                        <div key={chatId} className={`history-item ${chatId === activeChatId ? 'active' : ''}`} onClick={() => handleSelectChat(chatId)}>
-                                            <span>{chat.title || chat.messages[0]?.text.substring(0, 35) || 'New Chat...'}</span>
-                                            <button className="history-delete-btn" onClick={(e) => { e.stopPropagation(); handleDeleteChat(chatId); }} aria-label="Delete chat">
-                                                <Icon path="M18 6L6 18M6 6l12 12" size={16} />
-                                            </button>
-                                        </div>
-                                    )) : <p>No chat history yet.</p>}
-                                </div>
-                            </div>
-                        ) : activeTab === 'actions' ? (
-                             <div className="mobile-page-view">
-                                <div className="mobile-page-header"><h1>Actions</h1></div>
-                                <button className="mobile-page-btn" onClick={() => setShowQuizModal(true)} disabled={!selectedClass || isLoading}>
-                                    <Icon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /> Start Quiz
-                                </button>
-                                <button className="mobile-page-btn" onClick={handleSummarizeChat} disabled={!selectedClass || currentMessages.length < 2 || isLoading}>
-                                    <Icon path="M3 6h18M3 12h18M3 18h18" /> Summarize Chat
-                                </button>
-                                <button className="mobile-page-btn" onClick={handleExportChat} disabled={!selectedClass || currentMessages.length === 0 || isLoading}>
-                                    <Icon path="M12 5v12m-4-4l4 4 4-4m7 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2" /> Export Chat
-                                </button>
-                             </div>
-                        ) : ( // Settings Tab
-                            <div className="mobile-page-view">
-                                <div className="mobile-page-header"><h1>Settings</h1></div>
-                                <div className="mobile-settings-group">
-                                    <div className="theme-toggle" style={{padding: '8px 0'}}>
-                                        <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
-                                        <label className="switch">
-                                            <input type="checkbox" checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
-                                            <span className="slider"></span>
-                                        </label>
-                                    </div>
-                                </div>
-                                <button className="mobile-page-btn" onClick={() => { setSelectedClass(null); setActiveTab('chat'); }}>
-                                    <Icon path="M18 16.5V21a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2h4.5M12.5 2.5L21.5 11.5m-5-9l9 9" /> Change Class
-                                </button>
-                            </div>
+                     currentMessages.length === 0 ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
+                        (
+                            currentMessages.map((msg, index) => (
+                                <Message 
+                                    key={index}
+                                    msgIndex={index}
+                                    msg={msg} 
+                                    isLastMessage={index === currentMessages.length - 1}
+                                    isLoading={isLoading}
+                                />
+                            ))
                         )
                     }
                     <div ref={chatEndRef} />
-                    {selectedClass !== null && activeTab === 'chat' && (
-                        <button onClick={handleScrollToTop} className={`scroll-to-top-btn ${showScrollTop ? 'visible' : ''}`} aria-label="Scroll to top" aria-hidden={!showScrollTop}>
+
+                     {selectedClass !== null && (
+                        <button 
+                            onClick={handleScrollToTop} 
+                            className={`scroll-to-top-btn ${showScrollTop ? 'visible' : ''}`} 
+                            aria-label="Scroll to top"
+                            aria-hidden={!showScrollTop}
+                        >
                             <Icon path="M12 19V5M5 12l7-7 7 7" />
                         </button>
                     )}
                 </div>
 
-                {selectedClass !== null && !isQuizModeActive && activeTab === 'chat' && (
+                {selectedClass !== null && !isQuizModeActive && (
                     <div className="input-area-container">
                         <div className="input-area">
                            <div className="input-options">
@@ -1291,29 +1378,33 @@ const App = () => {
                         </div>
                     </div>
                 )}
-                
-                {selectedClass !== null && (
-                    <nav className="mobile-nav">
-                        <button className={`mobile-nav-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
-                            <Icon path="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                            <span className={activeTab === 'chat' ? 'gemini-gradient-text' : ''}>Chat</span>
-                        </button>
-                         <button className={`mobile-nav-btn ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
-                            <Icon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            <span className={activeTab === 'history' ? 'gemini-gradient-text' : ''}>History</span>
-                        </button>
-                         <button className={`mobile-nav-btn ${activeTab === 'actions' ? 'active' : ''}`} onClick={() => setActiveTab('actions')}>
-                            <Icon path="M10 3H3v7h7V3zM21 3h-7v7h7V3zM21 14h-7v7h7v-7zM10 14H3v7h7v-7z" />
-                            <span className={activeTab === 'actions' ? 'gemini-gradient-text' : ''}>Actions</span>
-                        </button>
-                         <button className={`mobile-nav-btn ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
-                            <Icon path="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.06-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.58-.21l-2.49 1a6.66 6.66 0 00-1.74-.99l-.38-2.65A.49.49 0 0014.25 2h-3.8a.49.49 0 00-.49.43l-.38 2.65a6.72 6.72 0 00-1.74.99l-2.49-1a.5.5 0 00-.58.21l-1.92 3.32a.5.5 0 00.12.61l2.03 1.58c-.04.3-.06.61-.06.94s.02.64.06.94l-2.03 1.58a.5.5 0 00-.12.61l1.92 3.32a.5.5 0 00.58.21l2.49-1c.52.38 1.1.68 1.74.99l.38 2.65a.49.49 0 00.49.43h3.8a.49.49 0 00.49-.43l.38-2.65a6.72 6.72 0 001.74-.99l2.49 1a.5.5 0 00.58-.21l1.92-3.32a.5.5 0 00-.12-.61l-2.03-1.58zM12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z" />
-                            <span className={activeTab === 'settings' ? 'gemini-gradient-text' : ''}>Settings</span>
-                        </button>
-                    </nav>
-                )}
-
             </div>
+            
+            {isQuizModeActive && (
+                <div className="quiz-overlay">
+                    <div className="quiz-container">
+                        <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
+                        {quizStage === 'question' && quizQuestions.length > 0 && (
+                            <QuizView
+                                question={quizQuestions[currentQuestionIndex]}
+                                onAnswerSelect={handleAnswerSelect}
+                                selectedAnswer={selectedAnswer}
+                            />
+                        )}
+                        {quizStage === 'results' && (
+                            <QuizResults
+                                score={quizScore}
+                                total={quizQuestions.length}
+                                onFinish={handleFinishQuiz}
+                                onTryAgain={() => {
+                                    handleFinishQuiz();
+                                    setShowQuizModal(true);
+                                }}
+                            />
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
