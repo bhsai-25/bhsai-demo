@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI, Type } from "@google/genai";
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
@@ -10,9 +11,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const { topic, systemInstruction, numQuestions } = req.body;
-        if (!topic || !systemInstruction || !numQuestions) {
-            return res.status(400).json({ error: 'Topic, systemInstruction, and numQuestions are required.' });
+        const { topic, systemInstruction, numQuestions, difficulty } = req.body;
+        if (!topic || !systemInstruction || !numQuestions || !difficulty) {
+            return res.status(400).json({ error: 'Topic, systemInstruction, numQuestions, and difficulty are required.' });
         }
 
         const validNumQuestions = [5, 10, 15, 20].includes(Number(numQuestions)) ? Number(numQuestions) : 5;
@@ -43,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             required: ["quiz"]
         };
 
-        const prompt = `Generate a ${validNumQuestions}-question multiple-choice quiz about "${topic}". The questions should be strictly academic and appropriate for the student described in the system instruction. Ensure there are exactly 4 options for each question.`;
+        const prompt = `Generate a ${validNumQuestions}-question multiple-choice quiz about "${topic}" with a difficulty level of "${difficulty}". The questions should be strictly academic and appropriate for the student described in the system instruction. Ensure there are exactly 4 options for each question.`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',

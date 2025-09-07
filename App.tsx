@@ -1,8 +1,12 @@
 
 
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
+import { initDB, migrateFromLocalStorage, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
+import type { ChatMessage, QuizQuestion, SelectOption, StoredChat } from './types';
+
 
 // Helper function to convert file to base64
 const fileToGenerativePart = async (file: File) => {
@@ -22,11 +26,8 @@ const originalCodeRenderer = renderer.code;
 const copyIconPath = "M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2";
 const checkIconPath = "M20 6L9 17l-5-5";
 
-// FIX: The signature for renderer.code has changed in a newer version of `marked`.
-// It now accepts a single object with `text`, `lang`, and `escaped` properties.
 renderer.code = function({ text: code, lang: infostring, escaped }) {
     const originalHtml = originalCodeRenderer.call(this, { text: code, lang: infostring, escaped });
-    // Escape quotes for the data-code attribute
     const safeCode = code.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
     const copySVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="${copyIconPath}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -54,30 +55,6 @@ renderer.code = function({ text: code, lang: infostring, escaped }) {
     return `<div class="code-block-wrapper">${originalHtml}${buttonHtml}</div>`;
 };
 marked.use({ renderer });
-
-
-// === Type Definitions ===
-interface GroundingChunk { web: { uri: string; title: string; } }
-type ChatMessage = {
-    role: 'user' | 'model';
-    text: string;
-    image?: string;
-    sources?: GroundingChunk[];
-};
-type Chat = {
-    title: string;
-    messages: ChatMessage[];
-};
-type QuizQuestion = {
-    question: string;
-    options: string[];
-    correctAnswerIndex: number;
-    explanation: string;
-};
-type SelectOption = {
-  value: number | string;
-  label: string;
-};
 
 
 // === Reusable UI Components (Moved outside App for performance) ===
@@ -124,15 +101,12 @@ const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: 
 
     const showTyping = isLoading && isLastMessage && msg.role === 'model';
     
-    // By memoizing the parsed markdown, we prevent expensive re-renders on every stream chunk.
     const htmlContent = useMemo(() => {
         let processedText = msg.text;
-        // Check for sources to avoid processing every message
         if (msg.sources && msg.sources.length > 0 && /\[\d+\]/.test(processedText)) {
             processedText = processedText.replace(/\[(\d+)\]/g, (match, numberStr) => {
                 const index = parseInt(numberStr, 10) - 1;
                 if (msg.sources && index >= 0 && index < msg.sources.length) {
-                    // This creates an anchor link. The href will be the ID of the source list item.
                     return `<sup><a href="#source-${msgIndex}-${index}" class="source-link" title="${msg.sources[index].web.title}">${numberStr}</a></sup>`;
                 }
                 return match;
@@ -168,7 +142,7 @@ const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: 
         </div>
     );
 });
-Message.displayName = 'Message'; // Good practice for debugging with memo
+Message.displayName = 'Message'; 
 
 const InitialClassSelector = ({ onSelectClass }: { onSelectClass: (grade: number) => void }) => (
     <div className="initial-class-selector">
@@ -210,103 +184,193 @@ const ChatWelcomeScreen = ({ suggestions, onSendMessage }: { suggestions: string
 );
 
 const CustomSelect = ({ options, value, onChange, label, id }: {
-  options: SelectOption[];
-  value: SelectOption;
-  onChange: (option: SelectOption) => void;
-  label: string;
-  id: string;
+    options: SelectOption[];
+    value: string | number;
+    onChange: (value: string | number) => void;
+    label: string;
+    id: string;
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const selectRef = useRef<HTMLDivElement>(null);
+    const [isOpen, setIsOpen] = useState(false);
+    const [activeIndex, setActiveIndex] = useState(-1);
+    const wrapperRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const listRef = useRef<HTMLUListElement>(null);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
+    const selectedOption = options.find(opt => opt.value === value);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [wrapperRef]);
+
+    useEffect(() => {
+        if (isOpen && activeIndex >= 0 && listRef.current) {
+            const activeItem = listRef.current.children[activeIndex] as HTMLLIElement;
+            if (activeItem) {
+                activeItem.scrollIntoView({ block: 'nearest' });
+            }
+        }
+    }, [isOpen, activeIndex]);
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            setIsOpen(false);
+            buttonRef.current?.focus();
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setIsOpen(true);
+            setActiveIndex(prev => (prev + 1) % options.length);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setIsOpen(true);
+            setActiveIndex(prev => (prev - 1 + options.length) % options.length);
+        } else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (isOpen) {
+                if (activeIndex >= 0) {
+                    onChange(options[activeIndex].value);
+                }
+                setIsOpen(false);
+                buttonRef.current?.focus();
+            } else {
+                setIsOpen(true);
+            }
+        } else if (e.key === 'Home') {
+            e.preventDefault();
+            setIsOpen(true);
+            setActiveIndex(0);
+        } else if (e.key === 'End') {
+            e.preventDefault();
+            setIsOpen(true);
+            setActiveIndex(options.length - 1);
+        }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
-  const handleSelect = (option: SelectOption) => {
-    onChange(option);
-    setIsOpen(false);
-  };
+    const handleOptionClick = (optionValue: string | number) => {
+        onChange(optionValue);
+        setIsOpen(false);
+        buttonRef.current?.focus();
+    };
 
-  return (
-    <div className="modal-form-group">
-      <label htmlFor={id} className="custom-select-label">{label}</label>
-      <div className="custom-select-container" ref={selectRef}>
-        <button
-          id={id}
-          type="button"
-          className={`custom-select-trigger ${isOpen ? 'open' : ''}`}
-          onClick={() => setIsOpen(!isOpen)}
-          aria-haspopup="listbox"
-          aria-expanded={isOpen}
-        >
-          <span>{value.label}</span>
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="chevron-icon">
-            <path d="m6 8 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-        {isOpen && (
-          <ul className="custom-select-options" role="listbox">
-            {options.map((option) => (
-              <li
-                key={option.value}
-                className={`custom-select-option ${value.value === option.value ? 'selected' : ''}`}
-                onClick={() => handleSelect(option)}
-                role="option"
-                aria-selected={value.value === option.value}
-              >
-                {option.label}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
+    return (
+        <div className="modal-form-group">
+            <label id={`${id}-label`} className="custom-select-label">{label}</label>
+            <div className="custom-select-wrapper" ref={wrapperRef}>
+                <button
+                    ref={buttonRef}
+                    id={id}
+                    type="button"
+                    className="custom-select-button"
+                    onClick={() => setIsOpen(!isOpen)}
+                    onKeyDown={handleKeyDown}
+                    aria-haspopup="listbox"
+                    aria-expanded={isOpen}
+                    aria-labelledby={`${id}-label ${id}`}
+                >
+                    <span>{selectedOption ? selectedOption.label : 'Select...'}</span>
+                    <Icon path="m6 9 6 6 6-6" />
+                </button>
+                {isOpen && (
+                    <ul
+                        ref={listRef}
+                        className="custom-select-options"
+                        role="listbox"
+                        aria-activedescendant={activeIndex >= 0 ? `${id}-option-${activeIndex}` : undefined}
+                        tabIndex={-1}
+                    >
+                        {options.map((option, index) => (
+                            <li
+                                key={option.value}
+                                id={`${id}-option-${index}`}
+                                role="option"
+                                aria-selected={value === option.value}
+                                className={`custom-select-option ${index === activeIndex ? 'active' : ''}`}
+                                onClick={() => handleOptionClick(option.value)}
+                                onMouseEnter={() => setActiveIndex(index)}
+                            >
+                                {option.label}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+        </div>
+    );
 };
 
 
-const QuizModal = ({ onStart, onCancel, topic, setTopic, numQuestions, setNumQuestions }: { onStart: (e: React.FormEvent) => void, onCancel: () => void, topic: string, setTopic: (t: string) => void, numQuestions: number, setNumQuestions: (n: number) => void }) => {
+const QuizModal = ({ 
+    onStart, onCancel, topic, setTopic, numQuestions, setNumQuestions, difficulty, setDifficulty 
+}: { 
+    onStart: (e: React.FormEvent) => void, 
+    onCancel: () => void, 
+    topic: string, 
+    setTopic: (t: string) => void, 
+    numQuestions: number, 
+    setNumQuestions: React.Dispatch<React.SetStateAction<number>>,
+    difficulty: string,
+    setDifficulty: React.Dispatch<React.SetStateAction<string>>
+}) => {
     
-    const quizNumOptions = [
+    const quizNumOptions: SelectOption[] = [
         { value: 5, label: '5 Questions' },
         { value: 10, label: '10 Questions' },
         { value: 15, label: '15 Questions' },
         { value: 20, label: '20 Questions' },
     ];
 
+    const quizDifficultyOptions: SelectOption[] = [
+        { value: 'Easy', label: 'Easy' },
+        { value: 'Medium', label: 'Medium' },
+        { value: 'Hard', label: 'Hard' },
+    ];
+
     return (
         <div className="modal-overlay">
-            <div className="modal-content">
-                <h2>Start a Quiz</h2>
-                <p>Enter a topic and select the number of questions for your quiz.</p>
+            <div className="modal-content quiz-setup-modal">
+                <div className="modal-header">
+                    <BHSLogo className="modal-header-icon" />
+                    <h3>Quiz <span className="gemini-gradient-text">Setup</span></h3>
+                </div>
+                 <p className="modal-subtitle">Enter a topic and select your quiz options below.</p>
                 <form onSubmit={onStart}>
-                    <div className="modal-form-group">
+                     <div className="modal-form-group">
                         <label htmlFor="quiz-topic">Topic</label>
-                        <input
-                            id="quiz-topic"
-                            type="text"
-                            className="modal-input"
-                            value={topic}
-                            onChange={(e) => setTopic(e.target.value)}
-                            placeholder="e.g., Newton's Laws of Motion"
-                            aria-label="Quiz topic"
-                            autoFocus
-                        />
+                        <div className="modal-input-wrapper">
+                            <Icon path="M9.5 3A6.5 6.5 0 0116 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 019.5 16a6.5 6.5 0 110-13m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z" size={20} />
+                            <input
+                                id="quiz-topic"
+                                type="text"
+                                className="modal-input"
+                                value={topic}
+                                onChange={(e) => setTopic(e.target.value)}
+                                placeholder="e.g., Newton's Laws of Motion"
+                                aria-label="Quiz topic"
+                                autoFocus
+                            />
+                        </div>
                     </div>
                     
+                    <CustomSelect
+                        id="difficulty-level"
+                        label="Difficulty"
+                        options={quizDifficultyOptions}
+                        value={difficulty}
+                        onChange={(value) => setDifficulty(value as string)}
+                    />
+
                     <CustomSelect
                         id="num-questions"
                         label="Number of Questions"
                         options={quizNumOptions}
-                        value={quizNumOptions.find(opt => opt.value === numQuestions)!}
-                        onChange={(option) => setNumQuestions(option.value as number)}
+                        value={numQuestions}
+                        onChange={(value) => setNumQuestions(value as number)}
                     />
 
                     <div className="modal-buttons">
@@ -366,10 +430,32 @@ const QuizProgressBar = ({ current, total }: { current: number; total: number })
 );
 
 const QuizResults = ({ score, total, onTryAgain, onFinish }: { score: number; total: number; onTryAgain: () => void; onFinish: () => void; }) => {
+    const [displayScore, setDisplayScore] = useState(0);
     const percentage = total > 0 ? (score / total) * 100 : 0;
     const radius = 52;
     const circumference = 2 * Math.PI * radius;
     const offset = circumference - (percentage / 100) * circumference;
+
+    useEffect(() => {
+        if (score === 0) return;
+        let start = 0;
+        const end = score;
+        const duration = 800;
+        const incrementTime = Math.max(1, Math.floor(duration / end));
+
+        const timer = setInterval(() => {
+            start += 1;
+            if (start >= end) {
+                setDisplayScore(end);
+                clearInterval(timer);
+            } else {
+                setDisplayScore(start);
+            }
+        }, incrementTime);
+
+        return () => clearInterval(timer);
+    }, [score]);
+
 
     return (
         <div className="quiz-results-view">
@@ -387,7 +473,7 @@ const QuizResults = ({ score, total, onTryAgain, onFinish }: { score: number; to
                     />
                 </svg>
                 <div className="score-text">
-                    <strong>{score}</strong>
+                    <strong>{displayScore}</strong>
                     <span>/ {total}</span>
                 </div>
             </div>
@@ -409,41 +495,15 @@ const App = () => {
         return savedClass ? parseInt(savedClass, 10) : null;
     });
     
-    const [chatHistories, setChatHistories] = useState<{ [classNum: number]: { [chatId: string]: Chat } }>(() => {
-        const saved = localStorage.getItem('chatHistories');
-        if (!saved) return {};
-        const parsed = JSON.parse(saved);
-
-        // Migration logic: check if the data is in the old format and convert it.
-        const firstClassKey = Object.keys(parsed)[0];
-        if (firstClassKey) {
-            const firstChatIdKey = Object.keys(parsed[firstClassKey])[0];
-            if (firstChatIdKey && Array.isArray(parsed[firstClassKey][firstChatIdKey])) {
-                const migratedHistories: { [classNum: number]: { [chatId: string]: Chat } } = {};
-                for (const classNum in parsed) {
-                    migratedHistories[classNum] = {};
-                    for (const chatId in parsed[classNum]) {
-                        migratedHistories[classNum][chatId] = {
-                            title: '',
-                            messages: parsed[classNum][chatId]
-                        };
-                    }
-                }
-                localStorage.setItem('chatHistories', JSON.stringify(migratedHistories));
-                return migratedHistories;
-            }
-        }
-        return parsed;
-    });
-
-    const [activeChatIds, setActiveChatIds] = useState<{ [classNum: number]: string }>(() => {
-        const saved = localStorage.getItem('activeChatIds');
-        return saved ? JSON.parse(saved) : {};
-    });
+    // DB & Chat State
+    const [dbReady, setDbReady] = useState(false);
+    const [chatsForClass, setChatsForClass] = useState<StoredChat[]>([]);
+    const [activeChatId, setActiveChatId] = useState<string | null>(null);
 
     const [input, setInput] = useState('');
     const [image, setImage] = useState<{ file: File, preview: string } | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [generatingTitleChatId, setGeneratingTitleChatId] = useState<string | null>(null);
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const [isGoogleSearchEnabled, setGoogleSearchEnabled] = useState(true);
     const [isRecording, setIsRecording] = useState(false);
@@ -454,6 +514,7 @@ const App = () => {
     const [quizTopic, setQuizTopic] = useState('');
     const [quizTopicForDisplay, setQuizTopicForDisplay] = useState('');
     const [quizNumQuestions, setQuizNumQuestions] = useState(5);
+    const [quizDifficulty, setQuizDifficulty] = useState('Medium');
     const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [userAnswers, setUserAnswers] = useState<(number | null)[]>([]);
@@ -462,16 +523,13 @@ const App = () => {
     const [quizStage, setQuizStage] = useState<'question' | 'results'>('question');
     const [quizScore, setQuizScore] = useState(0);
 
-
     const chatEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const recognitionRef = useRef<any>(null); // For SpeechRecognition
+    const recognitionRef = useRef<any>(null);
     const chatAreaRef = useRef<HTMLDivElement>(null);
 
-    const activeChatId = selectedClass ? activeChatIds[selectedClass] : null;
-    const currentChat = (selectedClass && activeChatId && chatHistories[selectedClass]?.[activeChatId]);
+    const currentChat = useMemo(() => chatsForClass.find(c => c.id === activeChatId), [chatsForClass, activeChatId]);
     const currentMessages = currentChat?.messages || [];
-
 
     // === Data ===
     const promptSuggestions: { [key: number]: string[] } = {
@@ -511,25 +569,44 @@ const App = () => {
     useEffect(() => {
         if (selectedClass) {
             localStorage.setItem('selectedClass', selectedClass.toString());
-            if (!chatHistories[selectedClass] || Object.keys(chatHistories[selectedClass]).length === 0) {
-                handleNewChat(selectedClass);
-            } else if (!activeChatIds[selectedClass]) {
-                const firstChatId = Object.keys(chatHistories[selectedClass])[0];
-                setActiveChatIds(prev => ({...prev, [selectedClass]: firstChatId }));
-            }
         } else {
             localStorage.removeItem('selectedClass');
         }
     }, [selectedClass]);
 
+    // DB Initialization and Chat Loading
     useEffect(() => {
-        localStorage.setItem('chatHistories', JSON.stringify(chatHistories));
-    }, [chatHistories]);
+        const setup = async () => {
+            await initDB();
+            await migrateFromLocalStorage();
+            setDbReady(true);
+        };
+        setup();
+    }, []);
 
-     useEffect(() => {
-        localStorage.setItem('activeChatIds', JSON.stringify(activeChatIds));
-    }, [activeChatIds]);
+    useEffect(() => {
+        if (!dbReady || selectedClass === null) {
+            setChatsForClass([]);
+            setActiveChatId(null);
+            return;
+        }
 
+        const loadChats = async () => {
+            const chats = await getChatsForClass(selectedClass);
+            setChatsForClass(chats);
+            const savedActiveId = localStorage.getItem(`activeChatId_${selectedClass}`);
+            if (savedActiveId && chats.some(c => c.id === savedActiveId)) {
+                setActiveChatId(savedActiveId);
+            } else if (chats.length > 0) {
+                setActiveChatId(chats[0].id);
+            } else {
+                handleNewChat(selectedClass);
+            }
+        };
+        loadChats();
+    }, [selectedClass, dbReady]);
+    
+    // Side-effects for UI
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [currentMessages, currentQuestionIndex]);
@@ -539,7 +616,7 @@ const App = () => {
         if (SpeechRecognitionAPI) {
             const recognition = new SpeechRecognitionAPI();
             recognition.continuous = false;
-            recognition.lang = 'en-US';
+            // recognition.lang = 'en-US'; // REMOVED: Use browser default for better accessibility
             recognition.interimResults = false;
             recognition.onresult = (event: any) => setInput(prev => (prev ? prev + ' ' : '') + event.results[0][0].transcript);
             recognition.onerror = (event: any) => {
@@ -557,19 +634,16 @@ const App = () => {
         if (!chatArea) return;
 
         const handleScroll = () => {
-            if (chatArea.scrollTop > chatArea.clientHeight / 2) {
-                setShowScrollTop(true);
-            } else {
-                setShowScrollTop(false);
-            }
+            setShowScrollTop(chatArea.scrollTop > chatArea.clientHeight / 2);
         };
 
         chatArea.addEventListener('scroll', handleScroll, { passive: true });
         return () => chatArea.removeEventListener('scroll', handleScroll);
-    }, [selectedClass, activeChatId]); // Re-attach listener if chat view changes
+    }, [selectedClass, activeChatId]);
 
     // === Core Logic ===
     const generateTitleForChat = async (classNum: number, chatId: string, messages: ChatMessage[]) => {
+        setGeneratingTitleChatId(chatId);
         try {
             const conversation = messages.slice(0, 2).map(m => `${m.role}: ${m.text}`).join('\n');
             const res = await fetch('/api/title', {
@@ -580,40 +654,35 @@ const App = () => {
             if (res.ok) {
                 const { title } = await res.json();
                 if (title) {
-                    setChatHistories(prev => {
-                        const newHistories = { ...prev };
-                        if (newHistories[classNum]?.[chatId]) {
-                            newHistories[classNum][chatId].title = title;
-                        }
-                        return newHistories;
-                    });
+                    const chatToUpdate = chatsForClass.find(c => c.id === chatId);
+                    if (chatToUpdate) {
+                        const updatedChat = { ...chatToUpdate, title };
+                        await updateChat(updatedChat);
+                        setChatsForClass(prev => prev.map(c => c.id === chatId ? updatedChat : c));
+                    }
                 }
             }
         } catch (e) {
             console.error("Failed to generate chat title:", e);
+        } finally {
+            setGeneratingTitleChatId(null);
         }
     };
     
     const handleSendMessage = async (messageText: string) => {
         if ((!messageText.trim() && !image) || isLoading || !selectedClass || !activeChatId) return;
+
+        const currentChat = chatsForClass.find(c => c.id === activeChatId);
+        if (!currentChat) return;
     
         const userMessage: ChatMessage = { role: 'user', text: messageText };
         if (image) userMessage.image = image.preview;
     
-        const currentChatHistory = chatHistories[selectedClass]?.[activeChatId]?.messages || [];
-        setChatHistories(prev => {
-            const currentChatState = prev[selectedClass]?.[activeChatId] || { title: '', messages: [] };
-            return {
-                ...prev,
-                [selectedClass]: {
-                    ...prev[selectedClass],
-                    [activeChatId]: {
-                        ...currentChatState,
-                        messages: [...currentChatState.messages, userMessage, { role: 'model', text: '' }]
-                    }
-                }
-            };
-        });
+        const updatedMessages: ChatMessage[] = [...currentChat.messages, userMessage, { role: 'model', text: '' }];
+        const updatedChat = { ...currentChat, messages: updatedMessages };
+        
+        setChatsForClass(prev => prev.map(c => c.id === activeChatId ? updatedChat : c));
+        await updateChat(updatedChat);
     
         setIsLoading(true);
         setInput('');
@@ -621,7 +690,7 @@ const App = () => {
         setImage(null);
     
         try {
-            const historyForApi = currentChatHistory.map(m => ({
+            const historyForApi = currentChat.messages.map(m => ({
                 role: m.role,
                 parts: [{ text: m.text }]
             }));
@@ -648,8 +717,7 @@ const App = () => {
     
             if (useGoogleSearch) {
                 const data = await response.json();
-                const sources = data.candidates?.[0]?.groundingMetadata?.groundingChunks as GroundingChunk[] | undefined;
-                updateLastMessage({ role: 'model', text: data.text, sources });
+                await updateLastMessage({ role: 'model', text: data.text, sources: data.candidates?.[0]?.groundingMetadata?.groundingChunks });
             } else {
                 if (!response.body) throw new Error("Response body is empty.");
                 const reader = response.body.getReader();
@@ -661,100 +729,88 @@ const App = () => {
                     const { value, done } = await reader.read();
                     if (done) break;
                     fullResponse += decoder.decode(value, { stream: true });
-                    updateLastMessage({ role: 'model', text: fullResponse });
+                    await updateLastMessage({ role: 'model', text: fullResponse }, false); // Don't save to DB on every chunk
                 }
+                await updateLastMessage({ role: 'model', text: fullResponse }, true); // Save final message to DB
             }
     
         } catch (error) {
             console.error("Error sending message:", error);
-            updateLastMessage({ role: 'model', text: `Sorry, something went wrong. ${(error as Error).message}` });
+            await updateLastMessage({ role: 'model', text: `Sorry, something went wrong. ${(error as Error).message}` });
         } finally {
             setIsLoading(false);
-            // After the first exchange in a new chat, generate a title
-            if (selectedClass && activeChatId) {
-                // We access the state directly from the setter to get the most up-to-date value
-                setChatHistories(prev => {
-                    const finalChat = prev[selectedClass]?.[activeChatId];
-                    if (finalChat && finalChat.messages.length === 2 && !finalChat.title) {
-                        generateTitleForChat(selectedClass, activeChatId, finalChat.messages);
-                    }
-                    return prev;
-                });
+            if (currentChat.messages.length === 0 && selectedClass) { // Only title for the first message exchange
+                // Refetch chat state to get the latest messages for title generation
+                 const finalChatState = chatsForClass.find(c => c.id === activeChatId);
+                 if (finalChatState && finalChatState.messages.length === 2) {
+                    generateTitleForChat(selectedClass, activeChatId, finalChatState.messages);
+                 }
             }
         }
     };
 
-    const updateLastMessage = (newMessage: ChatMessage) => {
-        if (!selectedClass || !activeChatId) return;
-        setChatHistories(prev => {
-            const newHistories = { ...prev };
-            const classHistory = newHistories[selectedClass];
-            if (classHistory?.[activeChatId]) {
-                const currentMessages = [...classHistory[activeChatId].messages];
-                if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'model') {
-                    currentMessages[currentMessages.length - 1] = newMessage;
-                } else {
-                     currentMessages.push(newMessage);
-                }
-                classHistory[activeChatId].messages = currentMessages;
-                return { ...prev, [selectedClass]: { ...classHistory } };
+    const updateLastMessage = async (newMessage: ChatMessage, saveToDb = true) => {
+        if (!activeChatId) return;
+
+        setChatsForClass(prevChats => {
+            const chatToUpdate = prevChats.find(c => c.id === activeChatId);
+            if (!chatToUpdate) return prevChats;
+
+            const newMessages = [...chatToUpdate.messages];
+            newMessages[newMessages.length - 1] = newMessage;
+            const updatedChat = { ...chatToUpdate, messages: newMessages };
+
+            if (saveToDb) {
+                updateChat(updatedChat);
             }
-            return prev;
+
+            return prevChats.map(c => c.id === activeChatId ? updatedChat : c);
         });
     };
 
-    const addNewMessage = (newMessage: ChatMessage) => {
-        if (!selectedClass || !activeChatId) return;
-        setChatHistories(prev => {
-            const currentChatState = prev[selectedClass]?.[activeChatId] || { title: '', messages: [] };
-            return {
-                ...prev,
-                [selectedClass]: {
-                    ...prev[selectedClass],
-                    [activeChatId]: {
-                        ...currentChatState,
-                        messages: [...currentChatState.messages, newMessage]
-                    }
-                }
-            };
-        });
+    const addNewMessage = async (newMessage: ChatMessage) => {
+        if (!activeChatId) return;
+        const chatToUpdate = chatsForClass.find(c => c.id === activeChatId);
+        if (!chatToUpdate) return;
+
+        const updatedChat = { ...chatToUpdate, messages: [...chatToUpdate.messages, newMessage] };
+        setChatsForClass(prev => prev.map(c => c.id === activeChatId ? updatedChat : c));
+        await updateChat(updatedChat);
     };
     
-    const handleNewChat = (classNum?: number) => {
+    const handleNewChat = async (classNum?: number) => {
         const targetClass = classNum || selectedClass;
         if (!targetClass) return;
         
-        const newChatId = Date.now().toString();
-        setChatHistories(prev => ({
-            ...prev,
-            [targetClass]: {
-                ...(prev[targetClass] || {}),
-                [newChatId]: { title: '', messages: [] }
-            }
-        }));
-        setActiveChatIds(prev => ({ ...prev, [targetClass]: newChatId }));
+        const newChatData = {
+            id: Date.now().toString(),
+            classNum: targetClass,
+            title: '',
+            messages: []
+        };
+        const newChat = await addChat(newChatData);
+        setChatsForClass(prev => [newChat, ...prev]);
+        handleSelectChat(newChat.id);
     };
 
     const handleSelectChat = (chatId: string) => {
         if (!selectedClass) return;
-        setIsQuizModeActive(false); // Exit quiz mode when switching chats
+        setIsQuizModeActive(false);
         setQuizQuestions([]);
-        setActiveChatIds(prev => ({ ...prev, [selectedClass]: chatId }));
+        setActiveChatId(chatId);
+        localStorage.setItem(`activeChatId_${selectedClass}`, chatId);
     };
 
-    const handleDeleteChat = (chatIdToDelete: string) => {
+    const handleDeleteChat = async (chatIdToDelete: string) => {
         if (!selectedClass) return;
 
-        setChatHistories(prev => {
-            const newClassHistories = { ...prev[selectedClass] };
-            delete newClassHistories[chatIdToDelete];
-            return { ...prev, [selectedClass]: newClassHistories };
-        });
+        await deleteChat(chatIdToDelete);
+        const remainingChats = chatsForClass.filter(c => c.id !== chatIdToDelete);
+        setChatsForClass(remainingChats);
 
         if (activeChatId === chatIdToDelete) {
-            const remainingChatIds = Object.keys(chatHistories[selectedClass] || {}).filter(id => id !== chatIdToDelete);
-            if (remainingChatIds.length > 0) {
-                handleSelectChat(remainingChatIds[0]);
+            if (remainingChats.length > 0) {
+                handleSelectChat(remainingChats[0].id);
             } else {
                 handleNewChat();
             }
@@ -762,12 +818,12 @@ const App = () => {
     };
     
     const handleSummarizeChat = async () => {
-        if (!selectedClass || !activeChatId || currentMessages.length < 2 || isLoading) return;
+        if (!currentChat || currentMessages.length < 2 || isLoading) return;
 
         setIsLoading(true);
         const conversation = currentMessages.map(m => `${m.role === 'user' ? 'Student' : 'Assistant'}: ${m.text}`).join('\n');
         
-        addNewMessage({ role: 'model', text: '' });
+        await addNewMessage({ role: 'model', text: '' });
         
         try {
             const response = await fetch('/api/summarize', {
@@ -776,15 +832,13 @@ const App = () => {
                 body: JSON.stringify({ conversation }),
             });
     
-            if (!response.ok) {
-                throw new Error('Failed to get summary.');
-            }
+            if (!response.ok) throw new Error('Failed to get summary.');
     
             const data = await response.json();
-            updateLastMessage({ role: 'model', text: `**Chat Summary:**\n\n${data.summary}` });
+            await updateLastMessage({ role: 'model', text: `**Chat Summary:**\n\n${data.summary}` });
         } catch (error) {
             console.error("Error summarizing chat:", error);
-            updateLastMessage({ role: 'model', text: 'Sorry, I was unable to summarize the chat.' });
+            await updateLastMessage({ role: 'model', text: 'Sorry, I was unable to summarize the chat.' });
         } finally {
             setIsLoading(false);
         }
@@ -840,8 +894,8 @@ const App = () => {
         setQuizTopicForDisplay(quizTopic);
         setIsLoading(true);
         setShowQuizModal(false);
-        addNewMessage({ role: 'user', text: `Start a quiz on: ${quizTopic}` });
-        addNewMessage({ role: 'model', text: '' }); // Placeholder for loading
+        await addNewMessage({ role: 'user', text: `Start a quiz on: ${quizTopic}` });
+        await addNewMessage({ role: 'model', text: '' });
         
         try {
             const response = await fetch('/api/quiz', {
@@ -851,6 +905,7 @@ const App = () => {
                     topic: quizTopic,
                     systemInstruction: getSystemInstruction(selectedClass),
                     numQuestions: quizNumQuestions,
+                    difficulty: quizDifficulty,
                 }),
             });
 
@@ -864,7 +919,7 @@ const App = () => {
                  throw new Error('The AI could not generate a quiz for this topic.');
             }
 
-            updateLastMessage({ role: 'model', text: "Great! Let's test your knowledge. Starting the quiz now..." });
+            await updateLastMessage({ role: 'model', text: "Great! Let's test your knowledge. Starting the quiz now..." });
             setQuizQuestions(data.quiz);
             setUserAnswers(new Array(data.quiz.length).fill(null));
             setCurrentQuestionIndex(0);
@@ -874,7 +929,7 @@ const App = () => {
 
         } catch (error) {
             console.error("Quiz generation failed:", error);
-            updateLastMessage({ role: 'model', text: `Sorry, I couldn't create a quiz for that topic. ${(error as Error).message}` });
+            await updateLastMessage({ role: 'model', text: `Sorry, I couldn't create a quiz for that topic. ${(error as Error).message}` });
         } finally {
             setQuizTopic('');
             setIsLoading(false);
@@ -892,21 +947,17 @@ const App = () => {
                 setCurrentQuestionIndex(prev => prev + 1);
                 setSelectedAnswer(null);
             } else {
-                // End of quiz, calculate score and move to results view
                 let score = 0;
                 quizQuestions.forEach((q, i) => {
-                    if (q.correctAnswerIndex === newAnswers[i]) {
-                        score++;
-                    }
+                    if (q.correctAnswerIndex === newAnswers[i]) score++;
                 });
                 setQuizScore(score);
                 setQuizStage('results');
                 
-                // Add score message to chat history in the background
                 const scoreMessage = `## Quiz Complete!\n\n**Topic: ${quizTopicForDisplay}**\n**Final score: ${score} out of ${quizQuestions.length}**`;
                 addNewMessage({ role: 'model', text: scoreMessage });
             }
-        }, 2500); // Wait 2.5s to show feedback before moving on
+        }, 2500);
     };
 
     const handleFinishQuiz = () => {
@@ -927,7 +978,7 @@ const App = () => {
                     --text-primary: #121212; --text-secondary: #555555;
                     --accent-primary: #121212; --accent-secondary: #333333;
                     --border-color: #d1d9e6;
-                    --font-heading: 'Google Sans', sans-serif; --font-body: 'Inter', sans-serif;
+                    --font-heading: 'Google Sans', sans-serif; --font-body: 'Montserrat', sans-serif;
                     --shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
                     --gemini-gradient: linear-gradient(90deg, #F97721, #F2A93B, #88D7E4, #2D79C7);
                     --correct-color: #2e7d32; --incorrect-color: #c62828;
@@ -973,7 +1024,8 @@ const App = () => {
                 /* === Sidebar === */
                 .sidebar-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
                 .sidebar-header .logo-container { display: flex; justify-content: center; align-items: center; width: 40px; height: 40px; }
-                .sidebar-title { font-family: var(--font-heading); font-size: 1.5rem; transform-origin: left center; }
+                .sidebar-header .logo-container svg { transition: transform 0.3s ease-out, filter 0.4s ease-out; }
+                .sidebar-title { font-family: var(--font-heading); font-size: 1.5rem; transform-origin: left center; transition: transform 0.3s ease-out; }
                 .sidebar-school { font-size: 0.9rem; color: var(--text-secondary); }
                 .sidebar-btn { width: 100%; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 0.9rem; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 8px; font-family: var(--font-heading); font-weight: 500; position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; }
                 .sidebar-btn:disabled { background-color: var(--bg-tertiary); color: var(--text-secondary); cursor: not-allowed; opacity: 0.6; }
@@ -995,14 +1047,23 @@ const App = () => {
                 [data-theme='dark'] input:checked + .slider:before { background-color: var(--bg-primary); }
                 input:checked + .slider:before { transform: translateX(18px); }
 
+                @keyframes spinner { to { transform: rotate(360deg); } }
+                .title-loader { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--text-secondary); border-top-color: transparent; border-radius: 50%; animation: spinner 0.6s linear infinite; margin-left: 8px; vertical-align: middle; }
+                .history-item-title { display: flex; align-items: center; overflow: hidden; }
+
                 /* === Futuristic Hover Effects (Desktop Only) === */
                 .class-button::before, .sidebar-btn::before, .modal-btn.submit::before {
                      content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out;
                 }
                 
                 @media (hover: hover) {
-                    .sidebar-header:hover .sidebar-title { transform: scale(1.05); background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
-                    .sidebar-header:hover svg { transform: scale(1.1); filter: drop-shadow(0 0 10px rgba(136, 215, 228, 0.4)); }
+                    .sidebar-header:hover .sidebar-title { transform: scale(1.05); }
+                    .sidebar-header:hover svg { 
+                        transform: scale(1.1); 
+                        filter: drop-shadow(0 0 2px rgba(136, 215, 228, 0.7)) 
+                                drop-shadow(0 0 5px rgba(45, 121, 199, 0.5)) 
+                                drop-shadow(0 0 10px rgba(249, 119, 33, 0.3));
+                    }
                     .sidebar-header:hover .logo-paths { stroke: url(#gemini-gradient-svg); }
                     .class-button:hover, .sidebar-btn:not(:disabled):hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
                     [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover { color: #fff; }
@@ -1013,7 +1074,6 @@ const App = () => {
                     .modal-btn.submit:not(:disabled):hover { color: #fff; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
                     [data-theme='dark'] .modal-btn.submit:not(:disabled):hover { color: #fff; }
                     .modal-btn.submit:not(:disabled):hover::before { opacity: 1; }
-                    .custom-select-option:hover { background-color: var(--bg-secondary); }
                     .quiz-option-btn:not(:disabled):hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
                 }
 
@@ -1085,108 +1145,43 @@ const App = () => {
                 .scroll-to-top-btn { position: absolute; bottom: 24px; right: 40px; z-index: 10; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 44px; height: 44px; display: flex; justify-content: center; align-items: center; cursor: pointer; box-shadow: var(--shadow); opacity: 0; transform: translateY(15px); transition: opacity 0.3s ease-out, transform 0.3s ease-out; pointer-events: none; }
                 .scroll-to-top-btn.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
 
-                /* === Quiz UI === */
+                /* === Quiz Modal === */
                 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 200; display: flex; justify-content: center; align-items: center; animation: fadeIn 0.2s ease-out; }
-                .modal-content { background: var(--bg-primary); padding: 32px; border-radius: 16px; width: 90%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-                .modal-content h2 { font-family: var(--font-heading); margin-bottom: 8px; }
-                .modal-content p { color: var(--text-secondary); margin-bottom: 24px; }
-                .modal-form-group { margin-bottom: 16px; }
-                .modal-form-group label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); font-family: var(--font-heading); font-weight: 500; }
-                .modal-input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-family: var(--font-heading); font-size: 1.2rem; }
-                .modal-buttons { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+                .modal-content { background: var(--bg-primary); padding: 32px; border-radius: 20px; width: 90%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+                .quiz-setup-modal .modal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+                .quiz-setup-modal .modal-header-icon { color: var(--accent-primary); }
+                .quiz-setup-modal .modal-header h3 { font-family: var(--font-heading); font-size: 1.8rem; font-weight: 700; }
+                .quiz-setup-modal .modal-subtitle { color: var(--text-secondary); margin-bottom: 24px; margin-left: 44px; font-size: 0.9rem; }
+                
+                .modal-form-group { margin-bottom: 20px; }
+                .modal-form-group label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); font-family: var(--font-heading); font-weight: 500; padding-left: 4px; }
+
+                .modal-input-wrapper { position: relative; border-radius: 12px; padding: 2px; background: var(--border-color); transition: background 0.3s; }
+                .modal-input-wrapper:focus-within { background: var(--gemini-gradient); }
+                .modal-input-wrapper svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; transition: color 0.3s; }
+                .modal-input-wrapper:focus-within svg { color: var(--text-primary); }
+
+                .modal-input { width: 100%; padding: 12px 16px 12px 44px; border-radius: 10px; border: none; background: var(--bg-secondary); color: var(--text-primary); font-family: var(--font-heading); font-size: 1.1rem; }
+                .modal-input:focus { outline: none; background: var(--bg-primary); }
+                
+                .modal-buttons { display: flex; justify-content: flex-end; gap: 12px; margin-top: 32px; }
                 .modal-btn { padding: 12px 24px; border: none; border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; transition: opacity 0.2s; font-size: 1rem; }
                 .modal-btn.cancel { background: var(--bg-tertiary); color: var(--text-primary); }
                 .modal-btn.submit { background: var(--accent-primary); color: var(--bg-primary); position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; border: 1px solid transparent; }
                 .modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-                /* === Custom Select Dropdown === */
-                .custom-select-label {
-                    font-size: 0.9rem;
-                    color: var(--text-secondary);
-                    font-family: var(--font-heading);
-                    font-weight: 500;
-                }
-                .custom-select-container {
-                    position: relative;
-                    font-family: var(--font-heading);
-                }
-                .custom-select-trigger {
-                    width: 100%;
-                    background: var(--bg-primary);
-                    border: 1px solid var(--border-color);
-                    border-radius: 12px;
-                    padding: 12px 16px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    cursor: pointer;
-                    text-align: left;
-                    font-size: 1.2rem;
-                    color: var(--text-primary);
-                    transition: all 0.2s ease-out;
-                }
-                .custom-select-trigger:focus {
-                    outline: none;
-                    border-color: var(--accent-primary);
-                    box-shadow: 0 0 0 2px rgba(136, 215, 228, 0.3);
-                }
-                .custom-select-trigger.open {
-                    border-bottom-left-radius: 0;
-                    border-bottom-right-radius: 0;
-                    border-color: var(--accent-primary);
-                }
-                .custom-select-trigger .chevron-icon {
-                    transition: transform 0.2s ease-out;
-                    transform: rotate(0deg);
-                }
-                .custom-select-trigger.open .chevron-icon {
-                    transform: rotate(180deg);
-                }
-                .custom-select-options {
-                    position: absolute;
-                    top: calc(100% - 1px);
-                    left: 0;
-                    right: 0;
-                    z-index: 101;
-                    background: var(--bg-primary);
-                    border: 1px solid var(--accent-primary);
-                    border-top: none;
-                    border-bottom-left-radius: 12px;
-                    border-bottom-right-radius: 12px;
-                    list-style: none;
-                    padding: 0;
-                    margin: 0;
-                    max-height: 200px;
-                    overflow-y: auto;
-                    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-                    animation: fadeIn 0.1s ease-out;
-                }
-                .custom-select-options::before {
-                    content: '';
-                    position: absolute;
-                    top: 0;
-                    left: 16px;
-                    right: 16px;
-                    height: 1px;
-                    background: var(--border-color);
-                }
-                .custom-select-option {
-                    padding: 12px 16px;
-                    cursor: pointer;
-                    font-size: 1.2rem;
-                    transition: background-color 0.2s ease-out;
-                }
-                .custom-select-option:first-child {
-                    padding-top: 16px;
-                }
-                .custom-select-option:last-child {
-                    padding-bottom: 16px;
-                }
-                .custom-select-option.selected {
-                    background-color: var(--bg-tertiary);
-                    font-weight: 500;
-                }
-
+                /* === Custom Accessible Select === */
+                .custom-select-label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); font-family: var(--font-heading); font-weight: 500; padding-left: 4px; }
+                .custom-select-wrapper { position: relative; }
+                .custom-select-button { width: 100%; display: flex; justify-content: space-between; align-items: center; background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px; font-size: 1.1rem; color: var(--text-primary); font-family: var(--font-heading); cursor: pointer; text-align: left; transition: border-color 0.2s; }
+                .custom-select-button:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 2px rgba(136, 215, 228, 0.3); }
+                .custom-select-button svg { transition: transform 0.2s ease-in-out; }
+                .custom-select-button[aria-expanded="true"] svg { transform: rotate(180deg); }
+                .custom-select-options { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 12px; padding: 8px; z-index: 10; max-height: 200px; overflow-y: auto; box-shadow: var(--shadow); list-style: none; }
+                .custom-select-option { padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: background-color 0.2s; font-size: 1.1rem; }
+                .custom-select-option.active { background-color: var(--bg-tertiary); }
+                .custom-select-option[aria-selected="true"] { font-weight: 500; color: var(--accent-primary); }
+                
                 /* === Quiz Dialog === */
                 .quiz-dialog {
                     background: var(--bg-primary);
@@ -1286,8 +1281,9 @@ const App = () => {
                 topic={quizTopic}
                 setTopic={setQuizTopic}
                 numQuestions={quizNumQuestions}
-                // FIX: Pass the correct state setter function for the number of questions.
                 setNumQuestions={setQuizNumQuestions}
+                difficulty={quizDifficulty}
+                setDifficulty={setQuizDifficulty}
             />}
 
             <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
@@ -1303,10 +1299,18 @@ const App = () => {
                         <Icon path="M12 5v14m-7-7h14" size={16} /> New Chat
                     </button>
                     <div className="chat-history-container">
-                        {selectedClass && Object.entries(chatHistories[selectedClass] || {}).map(([chatId, chat]) => (
-                             <div key={chatId} className={`history-item ${chatId === activeChatId ? 'active' : ''}`} onClick={() => handleSelectChat(chatId)}>
-                                <span>{chat.title || chat.messages[0]?.text.substring(0, 25) || 'New Chat...'}</span>
-                                <button className="history-delete-btn" onClick={(e) => { e.stopPropagation(); handleDeleteChat(chatId); }} aria-label="Delete chat">
+                        {chatsForClass.map((chat) => (
+                             <div key={chat.id} className={`history-item ${chat.id === activeChatId ? 'active' : ''}`} onClick={() => handleSelectChat(chat.id)}>
+                                <div className="history-item-title">
+                                    <span>{chat.title || chat.messages[0]?.text.substring(0, 25) || 'New Chat...'}</span>
+                                    {generatingTitleChatId === chat.id && <div className="title-loader"></div>}
+                                </div>
+                                <button className="history-delete-btn" onClick={(e) => { 
+                                    e.stopPropagation();
+                                    if(window.confirm('Are you sure you want to permanently delete this chat?')) {
+                                        handleDeleteChat(chat.id)
+                                    }
+                                 }} aria-label="Delete chat">
                                     <Icon path="M18 6L6 18M6 6l12 12" size={16} />
                                 </button>
                             </div>
@@ -1316,10 +1320,10 @@ const App = () => {
                      <button className="sidebar-btn" onClick={() => setShowQuizModal(true)} disabled={!selectedClass || isLoading}>
                         <Icon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" size={16} /> Start Quiz
                     </button>
-                     <button className="sidebar-btn" onClick={handleSummarizeChat} disabled={!selectedClass || currentMessages.length < 2 || isLoading}>
+                     <button className="sidebar-btn" onClick={handleSummarizeChat} disabled={!currentChat || currentMessages.length < 2 || isLoading}>
                         <Icon path="M3 6h18M3 12h18M3 18h18" size={16} /> Summarize Chat
                     </button>
-                    <button className="sidebar-btn" onClick={handleExportChat} disabled={!selectedClass || currentMessages.length === 0 || isLoading}>
+                    <button className="sidebar-btn" onClick={handleExportChat} disabled={!currentChat || currentMessages.length === 0 || isLoading}>
                         <Icon path="M12 5v12m-4-4l4 4 4-4m7 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2" size={16} /> Export Chat
                     </button>
                     <button className="sidebar-btn" onClick={() => { setSelectedClass(null); setSidebarOpen(false); }}>
@@ -1349,7 +1353,7 @@ const App = () => {
 
                 <div className="chat-area" ref={chatAreaRef}>
                     {selectedClass === null ? <InitialClassSelector onSelectClass={setSelectedClass} /> :
-                     currentMessages.length === 0 ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
+                     currentMessages.length === 0 && !isLoading ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
                         (
                             currentMessages.map((msg, index) => (
                                 <Message 

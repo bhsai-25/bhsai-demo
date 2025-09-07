@@ -20,7 +20,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 contents: message,
                 config: { tools: [{ googleSearch: {} }] }
             });
-            // CORRECTED: Extract only the necessary data into a clean JSON object.
+            // Extract only the necessary data into a clean JSON object.
             return res.status(200).json({ 
                 text: response.text, 
                 candidates: response.candidates 
@@ -32,14 +32,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         
-        // FIX: The `ai.models.create` method is deprecated.
-        // Use `ai.models.generateContentStream` for streaming with images,
-        // and `ai.chats.create` for streaming chat sessions.
         let stream;
         if (image) { 
+            // Build the conversation history with the new image message at the end.
+            // This provides context for vision-related queries.
+            const conversationHistory = (history || []).map((h: { role: any; parts: any; }) => ({
+                role: h.role,
+                parts: h.parts
+            }));
+
+            conversationHistory.push({
+                role: 'user',
+                parts: [image, { text: message }]
+            });
+
              stream = await ai.models.generateContentStream({
                 model: 'gemini-2.5-flash',
-                contents: { parts: [image, { text: message }] }
+                contents: conversationHistory,
+                config: { systemInstruction },
             });
         } else {
             const chat = ai.chats.create({
