@@ -1,7 +1,3 @@
-
-
-
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
 import { initDB, migrateFromLocalStorage, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
@@ -31,22 +27,12 @@ renderer.code = function({ text: code, lang: infostring, escaped }) {
     const safeCode = code.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
     const copySVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="${copyIconPath}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-    const checkSVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="${checkIconPath}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
     const buttonHtml = `
       <button 
         class="copy-code-btn" 
         data-code="${safeCode}"
         aria-label="Copy code"
-        onclick="
-          navigator.clipboard.writeText(this.dataset.code);
-          this.innerHTML = \`${checkSVG}<span>Copied!</span>\`;
-          this.setAttribute('aria-label', 'Code copied');
-          setTimeout(() => { 
-            this.innerHTML = \`${copySVG}<span>Copy</span>\`;
-            this.setAttribute('aria-label', 'Copy code');
-          }, 2000);
-        "
       >
         ${copySVG}
         <span>Copy</span>
@@ -577,9 +563,14 @@ const App = () => {
     // DB Initialization and Chat Loading
     useEffect(() => {
         const setup = async () => {
-            await initDB();
-            await migrateFromLocalStorage();
-            setDbReady(true);
+            try {
+                await initDB();
+                await migrateFromLocalStorage();
+                setDbReady(true);
+            } catch (err) {
+                console.error("Database initialization failed:", err);
+                alert("There was an error initializing the application's storage. Please ensure your browser supports IndexedDB and it's not disabled (e.g., in private browsing). The app may not function correctly.");
+            }
         };
         setup();
     }, []);
@@ -640,6 +631,39 @@ const App = () => {
         chatArea.addEventListener('scroll', handleScroll, { passive: true });
         return () => chatArea.removeEventListener('scroll', handleScroll);
     }, [selectedClass, activeChatId]);
+
+    // Effect for handling clicks on dynamically generated copy buttons
+    useEffect(() => {
+        const chatArea = chatAreaRef.current;
+        if (!chatArea) return;
+
+        const handleClick = (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            const copyBtn = target.closest<HTMLButtonElement>('.copy-code-btn');
+            
+            if (copyBtn && copyBtn.dataset.code) {
+                navigator.clipboard.writeText(copyBtn.dataset.code);
+                
+                const checkSVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="${checkIconPath}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                const copySVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="${copyIconPath}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                
+                copyBtn.innerHTML = `${checkSVG}<span>Copied!</span>`;
+                copyBtn.setAttribute('aria-label', 'Code copied');
+                copyBtn.disabled = true;
+                
+                setTimeout(() => {
+                    copyBtn.innerHTML = `${copySVG}<span>Copy</span>`;
+                    copyBtn.setAttribute('aria-label', 'Copy code');
+                    copyBtn.disabled = false;
+                }, 2000);
+            }
+        };
+
+        chatArea.addEventListener('click', handleClick);
+        return () => {
+            chatArea.removeEventListener('click', handleClick);
+        };
+    }, [selectedClass, activeChatId]); // Rerun when chat area content might change
 
     // === Core Logic ===
     const generateTitleForChat = async (classNum: number, chatId: string, messages: ChatMessage[]) => {
@@ -982,6 +1006,7 @@ const App = () => {
                     --shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
                     --gemini-gradient: linear-gradient(90deg, #F97721, #F2A93B, #88D7E4, #2D79C7);
                     --correct-color: #2e7d32; --incorrect-color: #c62828;
+                    --modal-overlay-bg: rgba(240, 244, 249, 0.5);
                 }
                 [data-theme='dark'] {
                     --bg-primary: #121212; --bg-secondary: #1e1e1e; --bg-tertiary: #2a2a2a;
@@ -989,6 +1014,7 @@ const App = () => {
                     --accent-primary: #ffffff; --accent-secondary: #cccccc;
                     --border-color: #333333;
                     --correct-color: #66bb6a; --incorrect-color: #ef5350;
+                    --modal-overlay-bg: rgba(18, 18, 18, 0.5);
                 }
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 body { background-color: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); transition: background-color 0.3s, color 0.3s; overflow: hidden; }
@@ -1060,9 +1086,8 @@ const App = () => {
                     .sidebar-header:hover .sidebar-title { transform: scale(1.05); }
                     .sidebar-header:hover svg { 
                         transform: scale(1.1); 
-                        filter: drop-shadow(0 0 2px rgba(136, 215, 228, 0.7)) 
-                                drop-shadow(0 0 5px rgba(45, 121, 199, 0.5)) 
-                                drop-shadow(0 0 10px rgba(249, 119, 33, 0.3));
+                        filter: drop-shadow(0 0 4px rgba(242, 169, 59, 0.4)) 
+                                drop-shadow(0 0 8px rgba(249, 119, 33, 0.2));
                     }
                     .sidebar-header:hover .logo-paths { stroke: url(#gemini-gradient-svg); }
                     .class-button:hover, .sidebar-btn:not(:disabled):hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
@@ -1146,7 +1171,7 @@ const App = () => {
                 .scroll-to-top-btn.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
 
                 /* === Quiz Modal === */
-                .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 200; display: flex; justify-content: center; align-items: center; animation: fadeIn 0.2s ease-out; }
+                .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--modal-overlay-bg); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 200; display: flex; justify-content: center; align-items: center; animation: fadeIn 0.2s ease-out; }
                 .modal-content { background: var(--bg-primary); padding: 32px; border-radius: 20px; width: 90%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
                 .quiz-setup-modal .modal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
                 .quiz-setup-modal .modal-header-icon { color: var(--accent-primary); }
@@ -1291,7 +1316,7 @@ const App = () => {
                     <div className="logo-container"><BHSLogo /></div>
                     <div>
                         <h1 className="sidebar-title">bhsAI</h1>
-                        <p className="sidebar-school">#ForBHSM, From BHSM, By BHSM!</p>
+                        <p className="sidebar-school">Smarter than your homework excuses</p>
                     </div>
                 </div>
                 <div className="sidebar-content">
