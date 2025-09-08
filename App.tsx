@@ -1,5 +1,11 @@
 
 
+
+
+
+
+
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
 import { initDB, migrateFromLocalStorage, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
@@ -47,8 +53,8 @@ marked.use({ renderer });
 
 // === Reusable UI Components (Moved outside App for performance) ===
 
-const BHSLogo = ({ className, size = 32 }: { className?: string, size?: number }) => (
-    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ strokeWidth: 1.5 }}>
+const GlobalSvgDefs = () => (
+    <svg width="0" height="0" style={{ position: 'absolute' }}>
         <defs>
             <linearGradient id="gemini-gradient-svg" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="#F97721" />
@@ -57,6 +63,12 @@ const BHSLogo = ({ className, size = 32 }: { className?: string, size?: number }
                 <stop offset="100%" stopColor="#2D79C7" />
             </linearGradient>
         </defs>
+    </svg>
+);
+
+
+const BHSLogo = ({ className, size = 32 }: { className?: string, size?: number }) => (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ strokeWidth: 1.5 }}>
         <g className="logo-paths" stroke="currentColor">
             <path d="M12 2L2 7L12 12L22 7L12 2Z" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M2 17L12 22L22 17" strokeLinecap="round" strokeLinejoin="round"/>
@@ -71,13 +83,14 @@ const Icon = ({ path, size = 24 }: { path: string, size?: number }) => (
     </svg>
 );
 
-const TypingIndicator = () => (
-    <div className="typing-indicator">
-        <span />
-        <span />
-        <span />
+const SkeletonLoader = () => (
+    <div className="skeleton-loader">
+        <div className="skeleton-line" style={{ width: '85%' }} />
+        <div className="skeleton-line" style={{ width: '95%' }} />
+        <div className="skeleton-line" style={{ width: '70%' }} />
     </div>
 );
+
 
 const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: ChatMessage; msgIndex: number; isLastMessage: boolean; isLoading: boolean }) => {
     const [copied, setCopied] = useState(false);
@@ -109,9 +122,10 @@ const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: 
             <div className="message-content-wrapper">
                 <div className="message-content">
                     {msg.image && <img src={msg.image} alt="User upload" className="message-image" />}
-                    <div dangerouslySetInnerHTML={{ __html: htmlContent }}></div>
                     
-                    {showTyping && <TypingIndicator />}
+                    {msg.text && <div dangerouslySetInnerHTML={{ __html: htmlContent }}></div>}
+                    
+                    {showTyping && <SkeletonLoader />}
 
                      {msg.sources && msg.sources.length > 0 && (
                         <div className="message-sources">
@@ -461,6 +475,14 @@ const QuizResults = ({ score, total, onTryAgain, onFinish, questions, userAnswer
             <h2 className="results-title">Quiz Complete!</h2>
             <div className="score-chart">
                 <svg width="120" height="120" viewBox="0 0 120 120">
+                    <defs>
+                        <linearGradient id="gemini-gradient-quiz" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stopColor="#F97721" />
+                            <stop offset="25%" stopColor="#F2A93B" />
+                            <stop offset="75%" stopColor="#88D7E4" />
+                            <stop offset="100%" stopColor="#2D79C7" />
+                        </linearGradient>
+                    </defs>
                     <circle className="score-chart-track" cx="60" cy="60" r={radius} />
                     <circle
                         className="score-chart-progress"
@@ -469,6 +491,7 @@ const QuizResults = ({ score, total, onTryAgain, onFinish, questions, userAnswer
                         r={radius}
                         strokeDasharray={circumference}
                         strokeDashoffset={offset}
+                        style={{ stroke: 'url(#gemini-gradient-quiz)' }}
                     />
                 </svg>
                 <div className="score-text">
@@ -641,7 +664,7 @@ const App = () => {
     // Side-effects for UI
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [currentMessages, currentQuestionIndex]);
+    }, [currentMessages, currentQuestionIndex, isLoading]);
     
     useEffect(() => {
         const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -1036,6 +1059,7 @@ const App = () => {
 
     return (
         <>
+            <GlobalSvgDefs />
             <DesktopOnlyView />
             <div className="app-container">
                 <style>{`
@@ -1092,7 +1116,7 @@ const App = () => {
                     
                     /* === Sidebar === */
                     .sidebar-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-                    .sidebar-header .logo-container { display: flex; justify-content: center; align-items: center; width: 48px; height: 48px; flex-shrink: 0; }
+                    .sidebar-header .logo-container { display: flex; justify-content: center; align-items: center; width: 48px; height: 48px; flex-shrink: 0; margin-left: -8px; }
                     .sidebar-header .logo-container svg { transition: transform 0.3s ease-out, filter 0.4s ease-out; }
                     .sidebar-title { font-family: var(--font-heading); font-size: 1.5rem; transform-origin: left center; transition: transform 0.3s ease-out; line-height: 1.2; }
                     .sidebar-tagline { font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px; line-height: 1.3; }
@@ -1155,12 +1179,23 @@ const App = () => {
                     .message-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--bg-tertiary); display: flex; justify-content: center; align-items: center; font-weight: bold; flex-shrink: 0; align-self: flex-start; }
                     .message-content-wrapper { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
                     .role-user .message-content-wrapper { justify-content: flex-end; }
+                    
                     .message-content { line-height: 1.6; flex-grow: 1; overflow: hidden; font-family: 'Google Sans', sans-serif; }
-                    .role-model .message-content { font-size: 1rem; font-weight: 400; }
-                    .role-user .message-content { font-size: 21px; font-weight: 400; text-align: right; max-width: 80%; }
+                    .role-model .message-content {
+                        font-size: 1rem;
+                        font-weight: 400;
+                    }
+                    .role-user .message-content {
+                        font-size: 23px;
+                        font-weight: 400;
+                        text-align: right;
+                    }
+                    
                     .message-content p, .message-content h3 { margin-bottom: 1em; }
-                    .message-content ol, .message-content ul { padding-left: 20px; margin-bottom: 1em; text-align: left; }
-                    .message-content pre { background-color: var(--bg-secondary); padding: 16px; border-radius: 12px; overflow-x: auto; margin: 12px 0; font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; word-wrap: break-word; text-align: left; }
+                    .message-content ol, .message-content ul { padding-left: 20px; margin-bottom: 1em; }
+                    .message-content pre { background-color: var(--bg-tertiary); padding: 16px; border-radius: 12px; overflow-x: auto; margin: 12px 0; font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; word-wrap: break-word; text-align: left; }
+                    .role-model .message-content pre { background-color: var(--bg-primary); }
+                    [data-theme='dark'] .role-model .message-content pre { background-color: var(--bg-tertiary); }
                     .message-content code:not(pre > code) { background-color: var(--bg-tertiary); padding: 2px 4px; border-radius: 6px; font-family: 'Courier New', Courier, monospace; }
                     .message-image { max-width: 300px; border-radius: 12px; margin-bottom: 8px; }
                     .copy-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s ease-out; visibility: hidden; opacity: 0; }
@@ -1180,12 +1215,21 @@ const App = () => {
                     .chat-welcome-screen p { margin-top: 8px; font-size: 1.1rem; color: var(--text-secondary); max-width: 400px; }
                     .chat-welcome-screen .prompt-suggestions { margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; max-width: 700px; }
                     
-                    /* Typing Indicator */
-                    @keyframes typing-jump { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
-                    .typing-indicator { display: flex; align-items: center; padding: 12px 0; }
-                    .typing-indicator span { height: 10px; width: 10px; margin: 0 3px; background-color: var(--text-secondary); border-radius: 50%; display: inline-block; animation: typing-jump 1.4s infinite ease-in-out; }
-                    .typing-indicator span:nth-of-type(1) { animation-delay: -0.28s; }
-                    .typing-indicator span:nth-of-type(2) { animation-delay: -0.14s; }
+                    /* Skeleton Loader */
+                    @keyframes shimmer {
+                        0% { background-position: -400px 0; }
+                        100% { background-position: 400px 0; }
+                    }
+                    .skeleton-loader { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; }
+                    .skeleton-line {
+                        height: 16px;
+                        background-color: var(--bg-tertiary);
+                        background-image: linear-gradient(to right, var(--bg-tertiary) 0%, var(--border-color) 20%, var(--bg-tertiary) 40%, var(--bg-tertiary) 100%);
+                        background-repeat: no-repeat;
+                        background-size: 800px 104px;
+                        border-radius: 8px;
+                        animation: shimmer 1.5s linear infinite;
+                    }
 
                     /* === Input Area === */
                     .input-area-container { padding: 12px 40px 24px; background-color: var(--bg-primary); border-top: 1px solid var(--border-color); position: relative; }
@@ -1313,7 +1357,7 @@ const App = () => {
                     .score-chart { position: relative; width: 120px; height: 120px; margin-bottom: 24px; }
                     .score-chart svg { transform: rotate(-90deg); }
                     .score-chart-track { fill: none; stroke: var(--bg-tertiary); stroke-width: 10; }
-                    .score-chart-progress { fill: none; stroke: url(#gemini-gradient-svg); stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease-out; }
+                    .score-chart-progress { fill: none; stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease-out; }
                     .score-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family: var(--font-heading); }
                     .score-text strong { font-size: 2rem; color: var(--text-primary); }
                     .score-text span { font-size: 1rem; color: var(--text-secondary); }
@@ -1420,6 +1464,7 @@ const App = () => {
                     numQuestions={quizNumQuestions}
                     setNumQuestions={setQuizNumQuestions}
                     difficulty={quizDifficulty}
+                    // FIX: Pass the correct state setter `setQuizDifficulty` for the `setDifficulty` prop.
                     setDifficulty={setQuizDifficulty}
                 />}
 
@@ -1552,52 +1597,50 @@ const App = () => {
                                     <button type="button" className={`input-btn voice-btn ${isRecording ? 'recording' : ''}`} onClick={handleVoiceInput} aria-label="Use voice input">
                                         <Icon path="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2" />
                                     </button>
-                                    <button type="submit" className="input-btn send-btn" disabled={isLoading || (!input.trim() && !image)} aria-label="Send message">
-                                        <Icon path="M12 19V5M5 12l7-7 7 7" />
+                                    <button type="submit" className="input-btn send-btn" disabled={isLoading || (!input.trim() && !image)}>
+                                        <Icon path="M5 12h14m-7-7l7 7-7 7" />
                                     </button>
                                 </form>
                             </div>
                         </div>
                     )}
-                </div>
-                
-                {isQuizModeActive && (
-                    <div className="modal-overlay">
-                        <div className="quiz-dialog">
+
+                    {selectedClass !== null && isQuizModeActive && (
+                         <div className="quiz-dialog">
                             <div className="quiz-header">
-                                <h3>Quiz: {quizTopicForDisplay}</h3>
-                                <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="End Quiz">
-                                    <Icon path="M18 6L6 18M6 6l12 12" size={20} />
-                                </button>
+                                 <h3>{quizTopicForDisplay || 'Quiz'}</h3>
+                                 <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="Finish Quiz">
+                                    <Icon path="M18 6L6 18M6 6l12 12" />
+                                 </button>
                             </div>
                             <div className="quiz-content">
                                 {quizStage === 'question' && quizQuestions.length > 0 && (
-                                    <>
+                                     <>
                                         <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
-                                        <QuizView
+                                        <QuizView 
                                             question={quizQuestions[currentQuestionIndex]}
                                             onAnswerSelect={handleAnswerSelect}
                                             selectedAnswer={selectedAnswer}
                                         />
-                                    </>
+                                     </>
                                 )}
                                 {quizStage === 'results' && (
-                                    <QuizResults
+                                    <QuizResults 
                                         score={quizScore}
                                         total={quizQuestions.length}
-                                        onFinish={handleFinishQuiz}
-                                        onTryAgain={() => {
-                                            handleFinishQuiz();
-                                            setShowQuizModal(true);
+                                        onTryAgain={() => { 
+                                            handleFinishQuiz(); 
+                                            setShowQuizModal(true); 
                                         }}
+                                        onFinish={handleFinishQuiz}
                                         questions={quizQuestions}
                                         userAnswers={userAnswers}
                                     />
                                 )}
                             </div>
-                        </div>
-                    </div>
-                )}
+                         </div>
+                    )}
+                </div>
             </div>
         </>
     );
