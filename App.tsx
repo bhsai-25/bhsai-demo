@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
 import { initDB, migrateFromLocalStorage, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
@@ -45,8 +47,8 @@ marked.use({ renderer });
 
 // === Reusable UI Components (Moved outside App for performance) ===
 
-const BHSLogo = ({ className }: { className?: string }) => (
-    <svg className={className} width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ strokeWidth: 1.5 }}>
+const BHSLogo = ({ className, size = 32 }: { className?: string, size?: number }) => (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ strokeWidth: 1.5 }}>
         <defs>
             <linearGradient id="gemini-gradient-svg" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="#F97721" />
@@ -103,7 +105,7 @@ const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: 
 
     return (
         <div className={`chat-message role-${msg.role}`}>
-            {msg.role === 'model' && <div className="message-avatar"><BHSLogo /></div>}
+            {msg.role === 'model' && <div className="message-avatar"><BHSLogo size={32} /></div>}
             <div className="message-content-wrapper">
                 <div className="message-content">
                     {msg.image && <img src={msg.image} alt="User upload" className="message-image" />}
@@ -132,9 +134,9 @@ Message.displayName = 'Message';
 
 const InitialClassSelector = ({ onSelectClass }: { onSelectClass: (grade: number) => void }) => (
     <div className="initial-class-selector">
-        <BHSLogo />
-        <h1 className="title-main"><span>Welcome to </span><span className="gemini-gradient-text">bhsAI</span></h1>
-        <p className="subtitle">Your academic assistant from Birla High School Mukundapur</p>
+        <BHSLogo size={80} />
+        <h1 className="title-main"><span>Welcome to </span><span className="gemini-gradient-text">Questionnaire</span></h1>
+        <p className="subtitle">Smarter than your homework excuses!</p>
         <p className="disclaimer-warning">Please be respectful and refrain from sending inappropriate messages.</p>
         <h2>Please select your class to begin</h2>
         <div className="class-grid">
@@ -153,7 +155,6 @@ const InitialClassSelector = ({ onSelectClass }: { onSelectClass: (grade: number
                 NEET
             </button>
         </div>
-        <p className="creator-credit">Created by Shreyansh and Aarush</p>
     </div>
 );
 
@@ -415,7 +416,14 @@ const QuizProgressBar = ({ current, total }: { current: number; total: number })
     </div>
 );
 
-const QuizResults = ({ score, total, onTryAgain, onFinish }: { score: number; total: number; onTryAgain: () => void; onFinish: () => void; }) => {
+const QuizResults = ({ score, total, onTryAgain, onFinish, questions, userAnswers }: { 
+    score: number; 
+    total: number; 
+    onTryAgain: () => void; 
+    onFinish: () => void;
+    questions: QuizQuestion[];
+    userAnswers: (number | null)[];
+}) => {
     const [displayScore, setDisplayScore] = useState(0);
     const percentage = total > 0 ? (score / total) * 100 : 0;
     const radius = 52;
@@ -442,6 +450,11 @@ const QuizResults = ({ score, total, onTryAgain, onFinish }: { score: number; to
         return () => clearInterval(timer);
     }, [score]);
 
+    const incorrectAnswers = questions.map((q, i) => ({
+        question: q,
+        userAnswerIndex: userAnswers[i],
+        index: i
+    })).filter(item => item.userAnswerIndex !== item.question.correctAnswerIndex);
 
     return (
         <div className="quiz-results-view">
@@ -464,6 +477,25 @@ const QuizResults = ({ score, total, onTryAgain, onFinish }: { score: number; to
                 </div>
             </div>
             <p className="score-summary">You answered {score} out of {total} questions correctly.</p>
+
+            {incorrectAnswers.length > 0 && (
+                <div className="performance-report">
+                    <h3>Performance Report</h3>
+                    <p className="report-intro">Here are the questions you missed:</p>
+                    {incorrectAnswers.map(item => (
+                        <div key={item.index} className="report-item">
+                            <div className="report-question" dangerouslySetInnerHTML={{ __html: marked.parse(item.question.question) as string }} />
+                            <p className="report-answer your-answer">
+                                <strong>Your Answer:</strong> {item.userAnswerIndex !== null ? item.question.options[item.userAnswerIndex] : 'Not answered'}
+                            </p>
+                            <p className="report-answer correct-answer">
+                                <strong>Correct Answer:</strong> {item.question.options[item.question.correctAnswerIndex]}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+            )}
+
             <div className="results-actions">
                 <button className="results-btn finish" onClick={onFinish}>Back to Chat</button>
                 <button className="results-btn try-again" onClick={onTryAgain}>Try Another Quiz</button>
@@ -471,6 +503,15 @@ const QuizResults = ({ score, total, onTryAgain, onFinish }: { score: number; to
         </div>
     );
 };
+
+const DesktopOnlyView = () => (
+    <div className="desktop-only-container">
+        <BHSLogo size={80} />
+        <h1 className="title-main gemini-gradient-text" style={{ fontSize: '3rem' }}>Questionnaire</h1>
+        <p className="subtitle">This application is best viewed on a desktop or laptop.</p>
+        <p className="disclaimer-warning" style={{ fontSize: '1rem', marginTop: '8px' }}>Please switch to a larger screen to continue.</p>
+    </div>
+);
 
 
 const App = () => {
@@ -543,7 +584,7 @@ const App = () => {
             syllabusType = 'NEET syllabus';
         }
     
-        return `You are bhsAI, an expert academic AI assistant for a ${studentType} from Birla High School Mukundapur. Your sole purpose is to provide accurate, strictly academic, and informational answers based on the ${syllabusType}. You must politely decline any request that is not related to school subjects, competitive exams, or educational topics. This includes refusing to engage in casual conversation, jokes, or any non-academic activities. Your responses must be factual, encouraging, and easy to understand. Prioritize safety, accuracy, and relevance in all interactions.`;
+        return `You are Questionnaire, an expert academic AI assistant for a ${studentType}. Your sole purpose is to provide accurate, strictly academic, and informational answers based on the ${syllabusType}. You must politely decline any request that is not related to school subjects, competitive exams, or educational topics. This includes refusing to engage in casual conversation, jokes, or any non-academic activities. Your responses must be factual, encouraging, and easy to understand. Prioritize safety, accuracy, and relevance in all interactions.`;
     };
 
     // === Effects ===
@@ -870,12 +911,12 @@ const App = () => {
 
     const handleExportChat = () => {
         if (!selectedClass || currentMessages.length === 0) return;
-        const historyText = currentMessages.map(msg => `## ${msg.role === 'user' ? 'You' : 'bhsAI'}\n\n${msg.text}`).join('\n\n---\n\n');
+        const historyText = currentMessages.map(msg => `## ${msg.role === 'user' ? 'You' : 'Questionnaire'}\n\n${msg.text}`).join('\n\n---\n\n');
         const blob = new Blob([historyText], { type: 'text/markdown;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `bhsAI-Class${selectedClass}-chat.md`;
+        a.download = `Questionnaire-Class${selectedClass}-chat.md`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -994,495 +1035,571 @@ const App = () => {
 
 
     return (
-        <div className="app-container">
-            <style>{`
-                /* === Base & Theme === */
-                :root {
-                    --bg-primary: #ffffff; --bg-secondary: #f0f4f9; --bg-tertiary: #e1e8f0;
-                    --text-primary: #121212; --text-secondary: #555555;
-                    --accent-primary: #121212; --accent-secondary: #333333;
-                    --border-color: #d1d9e6;
-                    --font-heading: 'Google Sans', sans-serif; --font-body: 'Montserrat', sans-serif;
-                    --shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-                    --gemini-gradient: linear-gradient(90deg, #F97721, #F2A93B, #88D7E4, #2D79C7);
-                    --correct-color: #2e7d32; --incorrect-color: #c62828;
-                    --modal-overlay-bg: rgba(240, 244, 249, 0.5);
-                }
-                [data-theme='dark'] {
-                    --bg-primary: #121212; --bg-secondary: #1e1e1e; --bg-tertiary: #2a2a2a;
-                    --text-primary: #e0e0e0; --text-secondary: #aaaaaa;
-                    --accent-primary: #ffffff; --accent-secondary: #cccccc;
-                    --border-color: #333333;
-                    --correct-color: #66bb6a; --incorrect-color: #ef5350;
-                    --modal-overlay-bg: rgba(18, 18, 18, 0.5);
-                }
-                * { box-sizing: border-box; margin: 0; padding: 0; }
-                body { background-color: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); transition: background-color 0.3s, color 0.3s; overflow: hidden; }
-                .gemini-gradient-text { background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
-
-                @keyframes fadeIn {
-                    from { opacity: 0; transform: translateY(8px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-
-                @keyframes subtle-glow {
-                    0%, 100% { text-shadow: none; }
-                    50% { text-shadow: 0 0 15px rgba(255, 179, 0, 0.4), 0 0 25px rgba(245, 124, 0, 0.2); }
-                }
-
-                /* === Initial Class Selector === */
-                .initial-class-selector { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; padding: 20px; gap: 16px; position: relative; }
-                .title-main { font-family: var(--font-heading); font-size: 4.5rem; font-weight: 700; }
-                .title-main .gemini-gradient-text { font-weight: 700; animation: subtle-glow 2.5s ease-out 0.5s 1; }
-                .title-main span { font-size: inherit; font-weight: 400; }
-                .subtitle { color: var(--text-secondary); font-size: 1.1rem; }
-                .disclaimer-warning { font-family: var(--font-body); font-size: 0.8rem; color: var(--text-secondary); max-width: 400px; margin-top: -8px; line-height: 1.4; }
-                h2 { margin-top: 20px; font-family: var(--font-heading); font-weight: 500;}
-                .class-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 16px; width: 100%; max-width: 600px; }
-                .class-button { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 1rem; font-family: var(--font-heading); font-weight: 500; position: relative; overflow: hidden; z-index: 1; transition: all 0.25s ease-out; }
-                .creator-credit { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; }
-
-                /* === Main Layout === */
-                .app-container { display: flex; height: 100vh; }
-                .sidebar { width: 260px; background-color: var(--bg-secondary); padding: 24px; display: flex; flex-direction: column; border-right: 1px solid var(--border-color); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), margin-left 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); transform: translateX(0); }
-                .chat-main { flex: 1; display: flex; flex-direction: column; position: relative; background-color: var(--bg-primary); transition: width 0.3s ease-in-out; }
-                
-                /* === Sidebar === */
-                .sidebar-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-                .sidebar-header .logo-container { display: flex; justify-content: center; align-items: center; width: 40px; height: 40px; }
-                .sidebar-header .logo-container svg { transition: transform 0.3s ease-out, filter 0.4s ease-out; }
-                .sidebar-title { font-family: var(--font-heading); font-size: 1.5rem; transform-origin: left center; transition: transform 0.3s ease-out; }
-                .sidebar-school { font-size: 0.9rem; color: var(--text-secondary); }
-                .sidebar-btn { width: 100%; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 0.9rem; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 8px; font-family: var(--font-heading); font-weight: 500; position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; }
-                .sidebar-btn:disabled { background-color: var(--bg-tertiary); color: var(--text-secondary); cursor: not-allowed; opacity: 0.6; }
-                .sidebar-content { display: flex; flex-direction: column; gap: 12px; flex-grow: 1; overflow: hidden; }
-                .chat-history-container { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; margin-top: 16px; padding-right: 8px; }
-                .history-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 12px; cursor: pointer; transition: background-color 0.2s ease-out; }
-                .history-item.active { background-color: var(--accent-primary); color: var(--bg-primary); }
-                .history-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem; }
-                .history-delete-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; opacity: 0; transition: opacity 0.2s ease-out; }
-                .history-item.active .history-delete-btn { color: var(--bg-primary); }
-                .sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 16px; }
-                .theme-toggle { display: flex; justify-content: space-between; align-items: center; padding: 8px; background-color: var(--bg-tertiary); border-radius: 999px; }
-                .theme-toggle > span { text-transform: uppercase; font-size: 0.75rem; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px; padding-left: 12px; }
-                .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
-                .switch input { opacity: 0; width: 0; height: 0; }
-                .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--bg-tertiary); border: 1px solid var(--border-color); transition: .3s; border-radius: 22px; }
-                .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: var(--text-secondary); transition: .3s; border-radius: 50%; }
-                input:checked + .slider { background-color: var(--accent-primary); border-color: var(--accent-primary); }
-                [data-theme='dark'] input:checked + .slider:before { background-color: var(--bg-primary); }
-                input:checked + .slider:before { transform: translateX(18px); }
-
-                @keyframes spinner { to { transform: rotate(360deg); } }
-                .title-loader { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--text-secondary); border-top-color: transparent; border-radius: 50%; animation: spinner 0.6s linear infinite; margin-left: 8px; vertical-align: middle; }
-                .history-item-title { display: flex; align-items: center; overflow: hidden; }
-
-                /* === Futuristic Hover Effects (Desktop Only) === */
-                .class-button::before, .sidebar-btn::before, .modal-btn.submit::before {
-                     content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out;
-                }
-                
-                @media (hover: hover) {
-                    .sidebar-header:hover .sidebar-title { transform: scale(1.05); }
-                    .sidebar-header:hover svg { 
-                        transform: scale(1.1); 
-                        filter: drop-shadow(0 0 4px rgba(242, 169, 59, 0.4)) 
-                                drop-shadow(0 0 8px rgba(249, 119, 33, 0.2));
+        <>
+            <DesktopOnlyView />
+            <div className="app-container">
+                <style>{`
+                    /* === Base & Theme === */
+                    :root {
+                        --bg-primary: #ffffff; --bg-secondary: #f0f4f9; --bg-tertiary: #e1e8f0;
+                        --text-primary: #121212; --text-secondary: #555555;
+                        --accent-primary: #121212; --accent-secondary: #333333;
+                        --border-color: #d1d9e6;
+                        --font-heading: 'Google Sans', sans-serif; --font-body: 'Montserrat', sans-serif;
+                        --shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+                        --gemini-gradient: linear-gradient(90deg, #F97721, #F2A93B, #88D7E4, #2D79C7);
+                        --correct-color: #2e7d32; --incorrect-color: #c62828;
+                        --modal-overlay-bg: rgba(240, 244, 249, 0.5);
                     }
-                    .sidebar-header:hover .logo-paths { stroke: url(#gemini-gradient-svg); }
-                    .class-button:hover, .sidebar-btn:not(:disabled):hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
-                    [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover { color: #fff; }
-                    .class-button:hover::before, .sidebar-btn:not(:disabled):hover::before { opacity: 1; }
-                    .history-item:hover { background-color: var(--bg-tertiary); }
-                    .history-item:hover .history-delete-btn { opacity: 1; }
-                    .chat-message:hover .copy-btn { visibility: visible; opacity: 1; }
-                    .modal-btn.submit:not(:disabled):hover { color: #fff; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
-                    [data-theme='dark'] .modal-btn.submit:not(:disabled):hover { color: #fff; }
-                    .modal-btn.submit:not(:disabled):hover::before { opacity: 1; }
-                    .quiz-option-btn:not(:disabled):hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
-                }
-
-                /* === Chat Area === */
-                .chat-header { display: none; padding: 12px; border-bottom: 1px solid var(--border-color); align-items: center; gap: 12px;}
-                .menu-btn { background: none; border: none; color: var(--text-primary); cursor: pointer; padding: 8px; }
-                .chat-area { flex: 1; overflow-y: auto; padding: 24px 40px; position: relative; }
-                .chat-message { display: flex; gap: 16px; margin-bottom: 24px; width: 100%; animation: fadeIn 0.3s ease-out forwards; }
-                .role-model { max-width: 80%; }
-                .role-user { justify-content: flex-end; }
-                .message-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--bg-tertiary); display: flex; justify-content: center; align-items: center; font-weight: bold; flex-shrink: 0; align-self: flex-start; }
-                .message-content-wrapper { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
-                .role-user .message-content-wrapper { justify-content: flex-end; }
-                .message-content { line-height: 1.6; flex-grow: 1; overflow: hidden; font-family: 'Google Sans', sans-serif; }
-                .role-model .message-content { font-size: 1rem; font-weight: 400; }
-                .role-user .message-content { font-size: 21px; font-weight: 400; text-align: right; max-width: 80%; }
-                .message-content p, .message-content h3 { margin-bottom: 1em; }
-                .message-content ol, .message-content ul { padding-left: 20px; margin-bottom: 1em; text-align: left; }
-                .message-content pre { background-color: var(--bg-secondary); padding: 16px; border-radius: 12px; overflow-x: auto; margin: 12px 0; font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; word-wrap: break-word; text-align: left; }
-                .message-content code:not(pre > code) { background-color: var(--bg-tertiary); padding: 2px 4px; border-radius: 6px; font-family: 'Courier New', Courier, monospace; }
-                .message-image { max-width: 300px; border-radius: 12px; margin-bottom: 8px; }
-                .copy-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s ease-out; visibility: hidden; opacity: 0; }
-                .message-sources { font-size: 0.9rem; margin-top: 16px; color: var(--text-secondary); text-align: left; }
-                .message-sources hr { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
-                .source-link { text-decoration: none; color: var(--accent-primary); font-weight: 600; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 4px; }
-
-                /* Code Block Enhancements */
-                .code-block-wrapper { position: relative; }
-                .copy-code-btn { position: absolute; top: 8px; right: 8px; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 4px 8px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.8rem; opacity: 0; transition: opacity 0.2s ease-out; }
-                .code-block-wrapper:hover .copy-code-btn { opacity: 1; }
-                .copy-code-btn:hover { background: var(--border-color); color: var(--text-primary); }
-
-                /* Chat Welcome Screen */
-                .chat-welcome-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; animation: fadeIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
-                .chat-welcome-screen h1 { font-family: 'Google Sans', sans-serif; font-size: 5rem; font-weight: 500; }
-                .chat-welcome-screen p { margin-top: 8px; font-size: 1.1rem; color: var(--text-secondary); max-width: 400px; }
-                .chat-welcome-screen .prompt-suggestions { margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; max-width: 700px; }
-                
-                /* Typing Indicator */
-                @keyframes typing-jump { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
-                .typing-indicator { display: flex; align-items: center; padding: 12px 0; }
-                .typing-indicator span { height: 10px; width: 10px; margin: 0 3px; background-color: var(--text-secondary); border-radius: 50%; display: inline-block; animation: typing-jump 1.4s infinite ease-in-out; }
-                .typing-indicator span:nth-of-type(1) { animation-delay: -0.28s; }
-                .typing-indicator span:nth-of-type(2) { animation-delay: -0.14s; }
-
-                /* === Input Area === */
-                .input-area-container { padding: 12px 40px 24px; background-color: var(--bg-primary); border-top: 1px solid var(--border-color); position: relative; }
-                .input-area { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
-                .suggestion-btn { background-color: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 10px 18px; border-radius: 12px; cursor: pointer; font-size: 1rem; transition: all 0.2s ease-out; font-family: var(--font-heading); }
-                .input-form { display: flex; align-items: center; position: relative; background-color: var(--bg-secondary); border-radius: 16px; border: 1px solid var(--border-color); transition: border-color 0.2s ease-out; }
-                .input-form:focus-within { border-color: var(--text-primary); }
-                .chat-input { width: 100%; padding: 14px 130px 14px 50px; border: none; background: transparent; color: var(--text-primary); font-size: 1rem; font-family: var(--font-heading); }
-                .chat-input:focus { outline: none; }
-                .input-btn { position: absolute; background: none; border: none; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; display: flex; justify-content: center; align-items: center; color: var(--text-secondary); transition: all 0.2s ease-out; }
-                .upload-btn { left: 8px; }
-                .voice-btn { right: 52px; }
-                .voice-btn.recording { color: #e53935; }
-                .send-btn { right: 8px; background-color: var(--accent-primary); color: var(--bg-primary); }
-                .send-btn:disabled { background-color: var(--text-secondary); cursor: not-allowed; opacity: 0.7; }
-                .image-preview { position: relative; width: fit-content; }
-                .image-preview img { max-height: 80px; border-radius: 12px; border: 1px solid var(--border-color); }
-                .remove-image-btn { position: absolute; top: -8px; right: -8px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 12px; }
-                .input-options { display: flex; justify-content: space-between; align-items: center; }
-                .search-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
-                .search-toggle .switch { transform: scale(0.8); }
-                .search-toggle.disabled { opacity: 0.5; cursor: not-allowed; }
-                
-                /* Scroll to Top button */
-                .scroll-to-top-btn { position: absolute; bottom: 24px; right: 40px; z-index: 10; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 44px; height: 44px; display: flex; justify-content: center; align-items: center; cursor: pointer; box-shadow: var(--shadow); opacity: 0; transform: translateY(15px); transition: opacity 0.3s ease-out, transform 0.3s ease-out; pointer-events: none; }
-                .scroll-to-top-btn.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
-
-                /* === Quiz Modal === */
-                .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--modal-overlay-bg); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 200; display: flex; justify-content: center; align-items: center; animation: fadeIn 0.2s ease-out; }
-                .modal-content { background: var(--bg-primary); padding: 32px; border-radius: 20px; width: 90%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-                .quiz-setup-modal .modal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
-                .quiz-setup-modal .modal-header-icon { color: var(--accent-primary); }
-                .quiz-setup-modal .modal-header h3 { font-family: var(--font-heading); font-size: 1.8rem; font-weight: 700; }
-                .quiz-setup-modal .modal-subtitle { color: var(--text-secondary); margin-bottom: 24px; margin-left: 44px; font-size: 0.9rem; }
-                
-                .modal-form-group { margin-bottom: 20px; }
-                .modal-form-group label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); font-family: var(--font-heading); font-weight: 500; padding-left: 4px; }
-
-                .modal-input-wrapper { position: relative; border-radius: 12px; padding: 2px; background: var(--border-color); transition: background 0.3s; }
-                .modal-input-wrapper:focus-within { background: var(--gemini-gradient); }
-                .modal-input-wrapper svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; transition: color 0.3s; }
-                .modal-input-wrapper:focus-within svg { color: var(--text-primary); }
-
-                .modal-input { width: 100%; padding: 12px 16px 12px 44px; border-radius: 10px; border: none; background: var(--bg-secondary); color: var(--text-primary); font-family: var(--font-heading); font-size: 1.1rem; }
-                .modal-input:focus { outline: none; background: var(--bg-primary); }
-                
-                .modal-buttons { display: flex; justify-content: flex-end; gap: 12px; margin-top: 32px; }
-                .modal-btn { padding: 12px 24px; border: none; border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; transition: opacity 0.2s; font-size: 1rem; }
-                .modal-btn.cancel { background: var(--bg-tertiary); color: var(--text-primary); }
-                .modal-btn.submit { background: var(--accent-primary); color: var(--bg-primary); position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; border: 1px solid transparent; }
-                .modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-                /* === Custom Accessible Select === */
-                .custom-select-label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); font-family: var(--font-heading); font-weight: 500; padding-left: 4px; }
-                .custom-select-wrapper { position: relative; }
-                .custom-select-button { width: 100%; display: flex; justify-content: space-between; align-items: center; background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px; font-size: 1.1rem; color: var(--text-primary); font-family: var(--font-heading); cursor: pointer; text-align: left; transition: border-color 0.2s; }
-                .custom-select-button:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 2px rgba(136, 215, 228, 0.3); }
-                .custom-select-button svg { transition: transform 0.2s ease-in-out; }
-                .custom-select-button[aria-expanded="true"] svg { transform: rotate(180deg); }
-                .custom-select-options { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 12px; padding: 8px; z-index: 10; max-height: 200px; overflow-y: auto; box-shadow: var(--shadow); list-style: none; }
-                .custom-select-option { padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: background-color 0.2s; font-size: 1.1rem; }
-                .custom-select-option.active { background-color: var(--bg-tertiary); }
-                .custom-select-option[aria-selected="true"] { font-weight: 500; color: var(--accent-primary); }
-                
-                /* === Quiz Dialog === */
-                .quiz-dialog {
-                    background: var(--bg-primary);
-                    border-radius: 16px;
-                    width: 90%;
-                    max-width: 800px;
-                    height: 90%;
-                    max-height: 700px;
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-                    display: flex;
-                    flex-direction: column;
-                    overflow: hidden;
-                    animation: fadeIn 0.3s ease-out;
-                }
-                .quiz-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 16px 24px;
-                    border-bottom: 1px solid var(--border-color);
-                    flex-shrink: 0;
-                }
-                .quiz-header h3 {
-                    font-family: var(--font-heading);
-                    font-size: 1.2rem;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                }
-                .quiz-close-btn {
-                    background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 50%;
-                    display: flex; align-items: center; justify-content: center; transition: background-color 0.2s, color 0.2s;
-                }
-                .quiz-close-btn:hover { background-color: var(--bg-tertiary); color: var(--text-primary); }
-                .quiz-content {
-                    flex-grow: 1;
-                    overflow-y: auto;
-                    padding: 24px;
-                    display: flex;
-                    flex-direction: column;
-                }
-
-                .quiz-progress-bar { padding: 0 0 16px 0; width: 100%; flex-shrink: 0; }
-                .quiz-progress-bar .progress-text { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; }
-                .quiz-progress-bar .progress-track { width: 100%; height: 6px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden; }
-                .quiz-progress-bar .progress-fill { height: 100%; background: var(--gemini-gradient); border-radius: 3px; transition: width 0.3s ease-out; }
-
-                /* Quiz View */
-                .quiz-view { flex-grow: 1; animation: fadeIn 0.5s ease-out; }
-                .quiz-view .message-content { font-family: var(--font-heading); font-size: 1.25rem; }
-                .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0 16px 48px; }
-                .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; text-align: left; transition: all 0.2s ease-out; font-family: var(--font-heading); font-size: 1rem; }
-                .quiz-option-btn.correct { background-color: var(--correct-color); color: white; border-color: var(--correct-color); }
-                .quiz-option-btn.incorrect { background-color: var(--incorrect-color); color: white; border-color: var(--incorrect-color); }
-                .quiz-option-btn:disabled { cursor: not-allowed; opacity: 0.8; }
-                .quiz-explanation { margin-left: 48px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 0.9rem; animation: fadeIn 0.3s ease-out; }
-                
-                /* Quiz Results */
-                .quiz-results-view { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; animation: fadeIn 0.5s ease-out; }
-                .results-title { font-family: var(--font-heading); font-size: 2.5rem; margin-bottom: 24px; }
-                .score-chart { position: relative; width: 120px; height: 120px; margin-bottom: 24px; }
-                .score-chart svg { transform: rotate(-90deg); }
-                .score-chart-track { fill: none; stroke: var(--bg-tertiary); stroke-width: 10; }
-                .score-chart-progress { fill: none; stroke: url(#gemini-gradient-svg); stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease-out; }
-                .score-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family: var(--font-heading); }
-                .score-text strong { font-size: 2rem; color: var(--text-primary); }
-                .score-text span { font-size: 1rem; color: var(--text-secondary); }
-                .score-summary { font-size: 1.1rem; margin-bottom: 32px; }
-                .results-actions { display: flex; gap: 16px; }
-                .results-btn { padding: 12px 24px; border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; font-size: 1rem; transition: all 0.2s ease-out; }
-                .results-btn.finish { background: var(--bg-tertiary); color: var(--text-primary); }
-                .results-btn.try-again { background: var(--accent-primary); color: var(--bg-primary); border-color: var(--accent-primary); }
-
-
-                /* === Responsive Design === */
-                @media (max-width: 768px) {
-                    .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; transform: translateX(-100%); }
-                    .sidebar.open { transform: translateX(0); box-shadow: 0 0 20px rgba(0,0,0,0.2); }
-                    .chat-header { display: flex; }
-                    .chat-area, .input-area-container { padding-left: 16px; padding-right: 16px; }
-                    .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 99; display: none; }
-                    .sidebar.open + .chat-main .overlay { display: block; }
-                    .role-user .message-content, .role-model .message-content { max-width: 95%; }
-                    .chat-welcome-screen h1 { font-size: 3rem; }
-                    .title-main { font-size: 3.5rem; }
-                    .scroll-to-top-btn { right: 20px; bottom: 20px; }
-                    .quiz-options { grid-template-columns: 1fr; margin-left: 0; }
-                    .quiz-explanation { margin-left: 0; }
-                    .role-user .message-content { font-size: 1rem; }
-                    .role-model .message-content { font-size: 0.95rem; }
-                }
-            `}</style>
-
-            {showQuizModal && <QuizModal
-                onStart={handleStartQuiz}
-                onCancel={() => setShowQuizModal(false)}
-                topic={quizTopic}
-                setTopic={setQuizTopic}
-                numQuestions={quizNumQuestions}
-                setNumQuestions={setQuizNumQuestions}
-                difficulty={quizDifficulty}
-                setDifficulty={setQuizDifficulty}
-            />}
-
-            <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
-                <div className="sidebar-header">
-                    <div className="logo-container"><BHSLogo /></div>
-                    <div>
-                        <h1 className="sidebar-title">bhsAI</h1>
-                        <p className="sidebar-school">Smarter than your homework excuses</p>
-                    </div>
-                </div>
-                <div className="sidebar-content">
-                    <button className="sidebar-btn" onClick={() => handleNewChat()} disabled={!selectedClass}>
-                        <Icon path="M12 5v14m-7-7h14" size={16} /> New Chat
-                    </button>
-                    <div className="chat-history-container">
-                        {chatsForClass.map((chat) => (
-                             <div key={chat.id} className={`history-item ${chat.id === activeChatId ? 'active' : ''}`} onClick={() => handleSelectChat(chat.id)}>
-                                <div className="history-item-title">
-                                    <span>{chat.title || chat.messages[0]?.text.substring(0, 25) || 'New Chat...'}</span>
-                                    {generatingTitleChatId === chat.id && <div className="title-loader"></div>}
-                                </div>
-                                <button className="history-delete-btn" onClick={(e) => { 
-                                    e.stopPropagation();
-                                    if(window.confirm('Are you sure you want to permanently delete this chat?')) {
-                                        handleDeleteChat(chat.id)
-                                    }
-                                 }} aria-label="Delete chat">
-                                    <Icon path="M18 6L6 18M6 6l12 12" size={16} />
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                    <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '16px 0'}}/>
-                     <button className="sidebar-btn" onClick={() => setShowQuizModal(true)} disabled={!selectedClass || isLoading}>
-                        <Icon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" size={16} /> Start Quiz
-                    </button>
-                     <button className="sidebar-btn" onClick={handleSummarizeChat} disabled={!currentChat || currentMessages.length < 2 || isLoading}>
-                        <Icon path="M3 6h18M3 12h18M3 18h18" size={16} /> Summarize Chat
-                    </button>
-                    <button className="sidebar-btn" onClick={handleExportChat} disabled={!currentChat || currentMessages.length === 0 || isLoading}>
-                        <Icon path="M12 5v12m-4-4l4 4 4-4m7 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2" size={16} /> Export Chat
-                    </button>
-                    <button className="sidebar-btn" onClick={() => { setSelectedClass(null); setSidebarOpen(false); }}>
-                       <Icon path="M18 16.5V21a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2h4.5M12.5 2.5L21.5 11.5m-5-9l9 9" size={16} /> Change Class
-                    </button>
-                </div>
-
-                <div className="sidebar-footer">
-                    <div className="theme-toggle">
-                        <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
-                        <label className="switch">
-                            <input type="checkbox" checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
-                            <span className="slider"></span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <div className="chat-main">
-                 {isSidebarOpen && <div className="overlay" onClick={() => setSidebarOpen(false)}></div>}
-                <div className="chat-header">
-                     <button className="menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
-                        <Icon path="M3 12h18M3 6h18M3 18h18" />
-                    </button>
-                    <h2 className="sidebar-title">bhsAI</h2>
-                </div>
-
-                <div className="chat-area" ref={chatAreaRef}>
-                    {selectedClass === null ? <InitialClassSelector onSelectClass={setSelectedClass} /> :
-                     currentMessages.length === 0 && !isLoading ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
-                        (
-                            currentMessages.map((msg, index) => (
-                                <Message 
-                                    key={index}
-                                    msgIndex={index}
-                                    msg={msg} 
-                                    isLastMessage={index === currentMessages.length - 1}
-                                    isLoading={isLoading}
-                                />
-                            ))
-                        )
+                    [data-theme='dark'] {
+                        --bg-primary: #121212; --bg-secondary: #1e1e1e; --bg-tertiary: #2a2a2a;
+                        --text-primary: #e0e0e0; --text-secondary: #aaaaaa;
+                        --accent-primary: #ffffff; --accent-secondary: #cccccc;
+                        --border-color: #333333;
+                        --correct-color: #66bb6a; --incorrect-color: #ef5350;
+                        --modal-overlay-bg: rgba(18, 18, 18, 0.5);
                     }
-                    <div ref={chatEndRef} />
+                    * { box-sizing: border-box; margin: 0; padding: 0; }
+                    body { background-color: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); transition: background-color 0.3s, color 0.3s; overflow: hidden; }
+                    .gemini-gradient-text { background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
-                     {selectedClass !== null && (
-                        <button 
-                            onClick={handleScrollToTop} 
-                            className={`scroll-to-top-btn ${showScrollTop ? 'visible' : ''}`} 
-                            aria-label="Scroll to top"
-                            aria-hidden={!showScrollTop}
-                        >
-                            <Icon path="M12 19V5M5 12l7-7 7 7" />
+                    @keyframes fadeIn {
+                        from { opacity: 0; transform: translateY(8px); }
+                        to { opacity: 1; transform: translateY(0); }
+                    }
+
+                    @keyframes subtle-glow {
+                        0%, 100% { text-shadow: none; }
+                        50% { text-shadow: 0 0 15px rgba(255, 179, 0, 0.4), 0 0 25px rgba(245, 124, 0, 0.2); }
+                    }
+
+                    /* === Initial Class Selector === */
+                    .initial-class-selector { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; padding: 20px; gap: 16px; position: relative; }
+                    .initial-class-selector svg { margin-bottom: 8px; }
+                    .title-main { font-family: var(--font-heading); font-size: 5rem; }
+                    .title-main .gemini-gradient-text { animation: subtle-glow 2.5s ease-out 0.5s 1; }
+                    .title-main span { font-size: inherit; font-weight: 500; }
+                    .subtitle { color: var(--text-secondary); font-size: 1.3rem; margin-top: 4px; }
+                    .disclaimer-warning { font-family: var(--font-body); font-size: 0.8rem; color: var(--text-secondary); max-width: 400px; margin-top: -8px; line-height: 1.4; }
+                    h2 { margin-top: 20px; font-family: var(--font-heading); font-weight: 500;}
+                    .class-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 16px; width: 100%; max-width: 600px; }
+                    .class-button { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 1rem; font-family: var(--font-heading); font-weight: 500; position: relative; overflow: hidden; z-index: 1; transition: all 0.25s ease-out; }
+
+                    /* === Main Layout === */
+                    .app-container { display: flex; height: 100vh; }
+                    .sidebar { width: 260px; background-color: var(--bg-secondary); padding: 24px; display: flex; flex-direction: column; border-right: 1px solid var(--border-color); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), margin-left 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); transform: translateX(0); }
+                    .chat-main { flex: 1; display: flex; flex-direction: column; position: relative; background-color: var(--bg-primary); transition: width 0.3s ease-in-out; }
+                    
+                    /* === Sidebar === */
+                    .sidebar-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+                    .sidebar-header .logo-container { display: flex; justify-content: center; align-items: center; width: 48px; height: 48px; flex-shrink: 0; }
+                    .sidebar-header .logo-container svg { transition: transform 0.3s ease-out, filter 0.4s ease-out; }
+                    .sidebar-title { font-family: var(--font-heading); font-size: 1.5rem; transform-origin: left center; transition: transform 0.3s ease-out; line-height: 1.2; }
+                    .sidebar-tagline { font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px; line-height: 1.3; }
+                    .sidebar-btn { width: 100%; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 0.9rem; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 8px; font-family: var(--font-heading); font-weight: 500; position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; }
+                    .sidebar-btn:disabled { background-color: var(--bg-tertiary); color: var(--text-secondary); cursor: not-allowed; opacity: 0.6; }
+                    .sidebar-content { display: flex; flex-direction: column; gap: 12px; flex-grow: 1; overflow: hidden; }
+                    .chat-history-container { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; margin-top: 16px; padding-right: 8px; }
+                    .history-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 12px; cursor: pointer; transition: background-color 0.2s ease-out; }
+                    .history-item.active { background-color: var(--accent-primary); color: var(--bg-primary); }
+                    .history-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem; }
+                    .history-delete-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; opacity: 0; transition: opacity 0.2s ease-out; }
+                    .history-item.active .history-delete-btn { color: var(--bg-primary); }
+                    .sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 16px; }
+                    .theme-toggle { display: flex; justify-content: space-between; align-items: center; padding: 8px; background-color: var(--bg-tertiary); border-radius: 999px; }
+                    .theme-toggle > span { text-transform: uppercase; font-size: 0.75rem; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px; padding-left: 12px; }
+                    .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+                    .switch input { opacity: 0; width: 0; height: 0; }
+                    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--bg-tertiary); border: 1px solid var(--border-color); transition: .3s; border-radius: 22px; }
+                    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: var(--text-secondary); transition: .3s; border-radius: 50%; }
+                    input:checked + .slider { background-color: var(--accent-primary); border-color: var(--accent-primary); }
+                    [data-theme='dark'] input:checked + .slider:before { background-color: var(--bg-primary); }
+                    input:checked + .slider:before { transform: translateX(18px); }
+
+                    @keyframes spinner { to { transform: rotate(360deg); } }
+                    .title-loader { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--text-secondary); border-top-color: transparent; border-radius: 50%; animation: spinner 0.6s linear infinite; margin-left: 8px; vertical-align: middle; }
+                    .history-item-title { display: flex; align-items: center; overflow: hidden; }
+
+                    /* === Futuristic Hover Effects (Desktop Only) === */
+                    .class-button::before, .sidebar-btn::before, .modal-btn.submit::before {
+                         content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out;
+                    }
+                    
+                    @media (hover: hover) {
+                        .sidebar-header:hover .sidebar-title { transform: scale(1.05); }
+                        .sidebar-header:hover svg { 
+                            transform: scale(1.1); 
+                            filter: drop-shadow(0 0 4px rgba(242, 169, 59, 0.4)) 
+                                    drop-shadow(0 0 8px rgba(249, 119, 33, 0.2));
+                        }
+                        .sidebar-header:hover .logo-paths { stroke: url(#gemini-gradient-svg); }
+                        .class-button:hover, .sidebar-btn:not(:disabled):hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
+                        [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover { color: #fff; }
+                        .class-button:hover::before, .sidebar-btn:not(:disabled):hover::before { opacity: 1; }
+                        .history-item:hover { background-color: var(--bg-tertiary); }
+                        .history-item:hover .history-delete-btn { opacity: 1; }
+                        .chat-message:hover .copy-btn { visibility: visible; opacity: 1; }
+                        .modal-btn.submit:not(:disabled):hover { color: #fff; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
+                        [data-theme='dark'] .modal-btn.submit:not(:disabled):hover { color: #fff; }
+                        .modal-btn.submit:not(:disabled):hover::before { opacity: 1; }
+                        .quiz-option-btn:not(:disabled):hover { border-color: var(--accent-primary); background: var(--bg-tertiary); }
+                    }
+
+                    /* === Chat Area === */
+                    .chat-header { display: none; padding: 12px; border-bottom: 1px solid var(--border-color); align-items: center; gap: 12px;}
+                    .menu-btn { background: none; border: none; color: var(--text-primary); cursor: pointer; padding: 8px; }
+                    .chat-area { flex: 1; overflow-y: auto; padding: 24px 40px; position: relative; }
+                    .chat-message { display: flex; gap: 16px; margin-bottom: 24px; width: 100%; animation: fadeIn 0.3s ease-out forwards; }
+                    .role-model { max-width: 80%; }
+                    .role-user { justify-content: flex-end; }
+                    .message-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--bg-tertiary); display: flex; justify-content: center; align-items: center; font-weight: bold; flex-shrink: 0; align-self: flex-start; }
+                    .message-content-wrapper { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
+                    .role-user .message-content-wrapper { justify-content: flex-end; }
+                    .message-content { line-height: 1.6; flex-grow: 1; overflow: hidden; font-family: 'Google Sans', sans-serif; }
+                    .role-model .message-content { font-size: 1rem; font-weight: 400; }
+                    .role-user .message-content { font-size: 21px; font-weight: 400; text-align: right; max-width: 80%; }
+                    .message-content p, .message-content h3 { margin-bottom: 1em; }
+                    .message-content ol, .message-content ul { padding-left: 20px; margin-bottom: 1em; text-align: left; }
+                    .message-content pre { background-color: var(--bg-secondary); padding: 16px; border-radius: 12px; overflow-x: auto; margin: 12px 0; font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; word-wrap: break-word; text-align: left; }
+                    .message-content code:not(pre > code) { background-color: var(--bg-tertiary); padding: 2px 4px; border-radius: 6px; font-family: 'Courier New', Courier, monospace; }
+                    .message-image { max-width: 300px; border-radius: 12px; margin-bottom: 8px; }
+                    .copy-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s ease-out; visibility: hidden; opacity: 0; }
+                    .message-sources { font-size: 0.9rem; margin-top: 16px; color: var(--text-secondary); text-align: left; }
+                    .message-sources hr { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
+                    .source-link { text-decoration: none; color: var(--accent-primary); font-weight: 600; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 4px; }
+
+                    /* Code Block Enhancements */
+                    .code-block-wrapper { position: relative; }
+                    .copy-code-btn { position: absolute; top: 8px; right: 8px; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 4px 8px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.8rem; opacity: 0; transition: opacity 0.2s ease-out; }
+                    .code-block-wrapper:hover .copy-code-btn { opacity: 1; }
+                    .copy-code-btn:hover { background: var(--border-color); color: var(--text-primary); }
+
+                    /* Chat Welcome Screen */
+                    .chat-welcome-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; animation: fadeIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+                    .chat-welcome-screen h1 { font-family: 'Google Sans', sans-serif; font-size: 5rem; font-weight: 500; }
+                    .chat-welcome-screen p { margin-top: 8px; font-size: 1.1rem; color: var(--text-secondary); max-width: 400px; }
+                    .chat-welcome-screen .prompt-suggestions { margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; max-width: 700px; }
+                    
+                    /* Typing Indicator */
+                    @keyframes typing-jump { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+                    .typing-indicator { display: flex; align-items: center; padding: 12px 0; }
+                    .typing-indicator span { height: 10px; width: 10px; margin: 0 3px; background-color: var(--text-secondary); border-radius: 50%; display: inline-block; animation: typing-jump 1.4s infinite ease-in-out; }
+                    .typing-indicator span:nth-of-type(1) { animation-delay: -0.28s; }
+                    .typing-indicator span:nth-of-type(2) { animation-delay: -0.14s; }
+
+                    /* === Input Area === */
+                    .input-area-container { padding: 12px 40px 24px; background-color: var(--bg-primary); border-top: 1px solid var(--border-color); position: relative; }
+                    .input-area { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+                    .suggestion-btn { background-color: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 10px 18px; border-radius: 12px; cursor: pointer; font-size: 1rem; transition: all 0.2s ease-out; font-family: var(--font-heading); }
+                    .input-form { display: flex; align-items: center; position: relative; background-color: var(--bg-secondary); border-radius: 16px; border: 1px solid var(--border-color); transition: border-color 0.2s ease-out; }
+                    .input-form:focus-within { border-color: var(--text-primary); }
+                    .chat-input { width: 100%; padding: 14px 130px 14px 50px; border: none; background: transparent; color: var(--text-primary); font-size: 1rem; font-family: var(--font-heading); }
+                    .chat-input:focus { outline: none; }
+                    .input-btn { position: absolute; background: none; border: none; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; display: flex; justify-content: center; align-items: center; color: var(--text-secondary); transition: all 0.2s ease-out; }
+                    .upload-btn { left: 8px; }
+                    .voice-btn { right: 52px; }
+                    .voice-btn.recording { color: #e53935; }
+                    .send-btn { right: 8px; background-color: var(--accent-primary); color: var(--bg-primary); }
+                    .send-btn:disabled { background-color: var(--text-secondary); cursor: not-allowed; opacity: 0.7; }
+                    .image-preview { position: relative; width: fit-content; }
+                    .image-preview img { max-height: 80px; border-radius: 12px; border: 1px solid var(--border-color); }
+                    .remove-image-btn { position: absolute; top: -8px; right: -8px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 12px; }
+                    .input-options { display: flex; justify-content: space-between; align-items: center; }
+                    .search-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
+                    .search-toggle .switch { transform: scale(0.8); }
+                    .search-toggle.disabled { opacity: 0.5; cursor: not-allowed; }
+                    
+                    /* Scroll to Top button */
+                    .scroll-to-top-btn { position: absolute; bottom: 24px; right: 40px; z-index: 10; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 44px; height: 44px; display: flex; justify-content: center; align-items: center; cursor: pointer; box-shadow: var(--shadow); opacity: 0; transform: translateY(15px); transition: opacity 0.3s ease-out, transform 0.3s ease-out; pointer-events: none; }
+                    .scroll-to-top-btn.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+                    /* === Quiz Modal === */
+                    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--modal-overlay-bg); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 200; display: flex; justify-content: center; align-items: center; animation: fadeIn 0.2s ease-out; }
+                    .modal-content { background: var(--bg-primary); padding: 32px; border-radius: 20px; width: 90%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+                    .quiz-setup-modal .modal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+                    .quiz-setup-modal .modal-header-icon { color: var(--accent-primary); }
+                    .quiz-setup-modal .modal-header h3 { font-family: var(--font-heading); font-size: 1.8rem; font-weight: 700; }
+                    .quiz-setup-modal .modal-subtitle { color: var(--text-secondary); margin-bottom: 24px; margin-left: 44px; font-size: 0.9rem; }
+                    
+                    .modal-form-group { margin-bottom: 20px; }
+                    .modal-form-group label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); font-family: var(--font-heading); font-weight: 500; padding-left: 4px; }
+
+                    .modal-input-wrapper { position: relative; border-radius: 12px; padding: 2px; background: var(--border-color); transition: background 0.3s; }
+                    .modal-input-wrapper:focus-within { background: var(--gemini-gradient); }
+                    .modal-input-wrapper svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; transition: color 0.3s; }
+                    .modal-input-wrapper:focus-within svg { color: var(--text-primary); }
+
+                    .modal-input { width: 100%; padding: 12px 16px 12px 44px; border-radius: 10px; border: none; background: var(--bg-secondary); color: var(--text-primary); font-family: var(--font-heading); font-size: 1.1rem; }
+                    .modal-input:focus { outline: none; background: var(--bg-primary); }
+                    
+                    .modal-buttons { display: flex; justify-content: flex-end; gap: 12px; margin-top: 32px; }
+                    .modal-btn { padding: 12px 24px; border: none; border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; transition: opacity 0.2s; font-size: 1rem; }
+                    .modal-btn.cancel { background: var(--bg-tertiary); color: var(--text-primary); }
+                    .modal-btn.submit { background: var(--accent-primary); color: var(--bg-primary); position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; border: 1px solid transparent; }
+                    .modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+                    /* === Custom Accessible Select === */
+                    .custom-select-label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); font-family: var(--font-heading); font-weight: 500; padding-left: 4px; }
+                    .custom-select-wrapper { position: relative; }
+                    .custom-select-button { width: 100%; display: flex; justify-content: space-between; align-items: center; background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px; font-size: 1.1rem; color: var(--text-primary); font-family: var(--font-heading); cursor: pointer; text-align: left; transition: border-color 0.2s; }
+                    .custom-select-button:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 2px rgba(136, 215, 228, 0.3); }
+                    .custom-select-button svg { transition: transform 0.2s ease-in-out; }
+                    .custom-select-button[aria-expanded="true"] svg { transform: rotate(180deg); }
+                    .custom-select-options { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 12px; padding: 8px; z-index: 10; max-height: 200px; overflow-y: auto; box-shadow: var(--shadow); list-style: none; }
+                    .custom-select-option { padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: background-color 0.2s; font-size: 1.1rem; }
+                    .custom-select-option.active { background-color: var(--bg-tertiary); }
+                    .custom-select-option[aria-selected="true"] { font-weight: 500; color: var(--accent-primary); }
+                    
+                    /* === Quiz Dialog === */
+                    .quiz-dialog {
+                        background: var(--bg-primary);
+                        border-radius: 16px;
+                        width: 90%;
+                        max-width: 800px;
+                        height: 90%;
+                        max-height: 700px;
+                        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                        display: flex;
+                        flex-direction: column;
+                        overflow: hidden;
+                        animation: fadeIn 0.3s ease-out;
+                    }
+                    .quiz-header {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 16px 24px;
+                        border-bottom: 1px solid var(--border-color);
+                        flex-shrink: 0;
+                    }
+                    .quiz-header h3 {
+                        font-family: var(--font-heading);
+                        font-size: 1.2rem;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    }
+                    .quiz-close-btn {
+                        background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 50%;
+                        display: flex; align-items: center; justify-content: center; transition: background-color 0.2s, color 0.2s;
+                    }
+                    .quiz-close-btn:hover { background-color: var(--bg-tertiary); color: var(--text-primary); }
+                    .quiz-content {
+                        flex-grow: 1;
+                        overflow-y: auto;
+                        padding: 24px;
+                        display: flex;
+                        flex-direction: column;
+                    }
+
+                    .quiz-progress-bar { padding: 0 0 16px 0; width: 100%; flex-shrink: 0; }
+                    .quiz-progress-bar .progress-text { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; }
+                    .quiz-progress-bar .progress-track { width: 100%; height: 6px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden; }
+                    .quiz-progress-bar .progress-fill { height: 100%; background: var(--gemini-gradient); border-radius: 3px; transition: width 0.3s ease-out; }
+
+                    /* Quiz View */
+                    .quiz-view { flex-grow: 1; animation: fadeIn 0.5s ease-out; }
+                    .quiz-view .message-content { font-family: var(--font-heading); font-size: 1.25rem; }
+                    .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0 16px 48px; }
+                    .quiz-option-btn { width: 100%; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; text-align: left; transition: all 0.2s ease-out; font-family: var(--font-heading); font-size: 1rem; }
+                    .quiz-option-btn.correct { background-color: var(--correct-color); color: white; border-color: var(--correct-color); }
+                    .quiz-option-btn.incorrect { background-color: var(--incorrect-color); color: white; border-color: var(--incorrect-color); }
+                    .quiz-option-btn:disabled { cursor: not-allowed; opacity: 0.8; }
+                    .quiz-explanation { margin-left: 48px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 0.9rem; animation: fadeIn 0.3s ease-out; }
+                    
+                    /* Quiz Results */
+                    .quiz-results-view { flex-grow: 1; display: flex; flex-direction: column; align-items: center; text-align: center; animation: fadeIn 0.5s ease-out; }
+                    .results-title { font-family: var(--font-heading); font-size: 2.5rem; margin-bottom: 24px; }
+                    .score-chart { position: relative; width: 120px; height: 120px; margin-bottom: 24px; }
+                    .score-chart svg { transform: rotate(-90deg); }
+                    .score-chart-track { fill: none; stroke: var(--bg-tertiary); stroke-width: 10; }
+                    .score-chart-progress { fill: none; stroke: url(#gemini-gradient-svg); stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease-out; }
+                    .score-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family: var(--font-heading); }
+                    .score-text strong { font-size: 2rem; color: var(--text-primary); }
+                    .score-text span { font-size: 1rem; color: var(--text-secondary); }
+                    .score-summary { font-size: 1.1rem; margin-bottom: 32px; }
+                    .results-actions { display: flex; gap: 16px; }
+                    .results-btn { padding: 12px 24px; border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; font-size: 1rem; transition: all 0.2s ease-out; }
+                    .results-btn.finish { background: var(--bg-tertiary); color: var(--text-primary); }
+                    .results-btn.try-again { background: var(--accent-primary); color: var(--bg-primary); border-color: var(--accent-primary); }
+
+                    /* Performance Report in Quiz Results */
+                    .performance-report {
+                        margin-top: 32px;
+                        width: 100%;
+                        text-align: left;
+                        border-top: 1px solid var(--border-color);
+                        padding-top: 24px;
+                    }
+                    .performance-report h3 {
+                        font-family: var(--font-heading);
+                        font-size: 1.5rem;
+                        text-align: center;
+                        margin-bottom: 8px;
+                    }
+                    .report-intro {
+                        text-align: center;
+                        color: var(--text-secondary);
+                        margin-bottom: 24px;
+                    }
+                    .report-item {
+                        background: var(--bg-secondary);
+                        padding: 16px;
+                        border-radius: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-question {
+                        font-weight: 500;
+                        margin-bottom: 12px;
+                    }
+                    .report-question p { margin-bottom: 0; }
+                    .report-answer {
+                        font-size: 0.9rem;
+                        padding: 8px 12px;
+                        border-left: 3px solid;
+                        border-radius: 0 8px 8px 0;
+                    }
+                    .report-answer strong { color: var(--text-secondary); }
+                    .your-answer {
+                        border-color: var(--incorrect-color);
+                        background-color: color-mix(in srgb, var(--incorrect-color) 10%, transparent);
+                        margin-bottom: 8px;
+                    }
+                    .correct-answer {
+                        border-color: var(--correct-color);
+                        background-color: color-mix(in srgb, var(--correct-color) 10%, transparent);
+                    }
+
+                    /* === Desktop Only View === */
+                    .desktop-only-container {
+                        display: none;
+                        flex-direction: column;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        text-align: center;
+                        padding: 20px;
+                        gap: 16px;
+                        background-color: var(--bg-primary);
+                        color: var(--text-primary);
+                    }
+
+                    /* === Responsive Design === */
+                    @media (max-width: 1024px) {
+                        .app-container {
+                            display: none;
+                        }
+                        .desktop-only-container {
+                            display: flex;
+                        }
+                    }
+
+                    @media (max-width: 768px) {
+                        .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; transform: translateX(-100%); }
+                        .sidebar.open { transform: translateX(0); box-shadow: 0 0 20px rgba(0,0,0,0.2); }
+                        .chat-header { display: flex; }
+                        .chat-area, .input-area-container { padding-left: 16px; padding-right: 16px; }
+                        .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 99; display: none; }
+                        .sidebar.open + .chat-main .overlay { display: block; }
+                        .role-user .message-content, .role-model .message-content { max-width: 95%; }
+                        .chat-welcome-screen h1 { font-size: 3rem; }
+                        .title-main { font-size: 3.5rem; }
+                        .scroll-to-top-btn { right: 20px; bottom: 20px; }
+                        .quiz-options { grid-template-columns: 1fr; margin-left: 0; }
+                        .quiz-explanation { margin-left: 0; }
+                        .role-user .message-content { font-size: 1rem; }
+                        .role-model .message-content { font-size: 0.95rem; }
+                    }
+                `}</style>
+
+                {showQuizModal && <QuizModal
+                    onStart={handleStartQuiz}
+                    onCancel={() => setShowQuizModal(false)}
+                    topic={quizTopic}
+                    setTopic={setQuizTopic}
+                    numQuestions={quizNumQuestions}
+                    setNumQuestions={setQuizNumQuestions}
+                    difficulty={quizDifficulty}
+                    setDifficulty={setQuizDifficulty}
+                />}
+
+                <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
+                    <div className="sidebar-header">
+                        <div className="logo-container"><BHSLogo size={40} /></div>
+                        <div>
+                            <h1 className="sidebar-title">Questionnaire</h1>
+                            <p className="sidebar-tagline">Smarter than your homework excuses!</p>
+                        </div>
+                    </div>
+                    <div className="sidebar-content">
+                        <button className="sidebar-btn" onClick={() => handleNewChat()} disabled={!selectedClass}>
+                            <Icon path="M12 5v14m-7-7h14" size={16} /> New Chat
                         </button>
+                        <div className="chat-history-container">
+                            {chatsForClass.map((chat) => (
+                                 <div key={chat.id} className={`history-item ${chat.id === activeChatId ? 'active' : ''}`} onClick={() => handleSelectChat(chat.id)}>
+                                    <div className="history-item-title">
+                                        <span>{chat.title || chat.messages[0]?.text.substring(0, 25) || 'New Chat...'}</span>
+                                        {generatingTitleChatId === chat.id && <div className="title-loader"></div>}
+                                    </div>
+                                    <button className="history-delete-btn" onClick={(e) => { 
+                                        e.stopPropagation();
+                                        if(window.confirm('Are you sure you want to permanently delete this chat?')) {
+                                            handleDeleteChat(chat.id)
+                                        }
+                                     }} aria-label="Delete chat">
+                                        <Icon path="M18 6L6 18M6 6l12 12" size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                        <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '16px 0'}}/>
+                         <button className="sidebar-btn" onClick={() => setShowQuizModal(true)} disabled={!selectedClass || isLoading}>
+                            <Icon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" size={16} /> Start Quiz
+                        </button>
+                         <button className="sidebar-btn" onClick={handleSummarizeChat} disabled={!currentChat || currentMessages.length < 2 || isLoading}>
+                            <Icon path="M3 6h18M3 12h18M3 18h18" size={16} /> Summarize Chat
+                        </button>
+                        <button className="sidebar-btn" onClick={handleExportChat} disabled={!currentChat || currentMessages.length === 0 || isLoading}>
+                            <Icon path="M12 5v12m-4-4l4 4 4-4m7 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2" size={16} /> Export Chat
+                        </button>
+                        <button className="sidebar-btn" onClick={() => { setSelectedClass(null); setSidebarOpen(false); }}>
+                           <Icon path="M18 16.5V21a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2h4.5M12.5 2.5L21.5 11.5m-5-9l9 9" size={16} /> Change Class
+                        </button>
+                    </div>
+
+                    <div className="sidebar-footer">
+                        <div className="theme-toggle">
+                            <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
+                            <label className="switch">
+                                <input type="checkbox" checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
+                                <span className="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="chat-main">
+                     {isSidebarOpen && <div className="overlay" onClick={() => setSidebarOpen(false)}></div>}
+                    <div className="chat-header">
+                         <button className="menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
+                            <Icon path="M3 12h18M3 6h18M3 18h18" />
+                        </button>
+                        <h2 className="sidebar-title">Questionnaire</h2>
+                    </div>
+
+                    <div className="chat-area" ref={chatAreaRef}>
+                        {selectedClass === null ? <InitialClassSelector onSelectClass={setSelectedClass} /> :
+                         currentMessages.length === 0 && !isLoading ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
+                            (
+                                currentMessages.map((msg, index) => (
+                                    <Message 
+                                        key={index}
+                                        msgIndex={index}
+                                        msg={msg} 
+                                        isLastMessage={index === currentMessages.length - 1}
+                                        isLoading={isLoading}
+                                    />
+                                ))
+                            )
+                        }
+                        <div ref={chatEndRef} />
+
+                         {selectedClass !== null && (
+                            <button 
+                                onClick={handleScrollToTop} 
+                                className={`scroll-to-top-btn ${showScrollTop ? 'visible' : ''}`} 
+                                aria-label="Scroll to top"
+                                aria-hidden={!showScrollTop}
+                            >
+                                <Icon path="M12 19V5M5 12l7-7 7 7" />
+                            </button>
+                        )}
+                    </div>
+
+                    {selectedClass !== null && !isQuizModeActive && (
+                        <div className="input-area-container">
+                            <div className="input-area">
+                               <div className="input-options">
+                                    {image && (
+                                        <div className="image-preview">
+                                            <img src={image.preview} alt="Selected preview" />
+                                            <button onClick={() => { setImage(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="remove-image-btn">×</button>
+                                        </div>
+                                    )}
+                                    <label className={`search-toggle ${image ? 'disabled' : ''}`} title={image ? "Search is disabled when an image is attached" : "Toggle web search"}>
+                                        <label className="switch">
+                                            <input type="checkbox" checked={isGoogleSearchEnabled} onChange={() => setGoogleSearchEnabled(p => !p)} disabled={!!image} />
+                                            <span className="slider"></span>
+                                        </label>
+                                        <span>Search the web</span>
+                                    </label>
+                               </div>
+                                <form className="input-form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }}>
+                                    <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" style={{ display: 'none' }} />
+                                    <button type="button" className="input-btn upload-btn" onClick={() => fileInputRef.current?.click()} aria-label="Upload image">
+                                        <Icon path="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49" />
+                                    </button>
+                                    <input
+                                        type="text"
+                                        className="chat-input"
+                                        placeholder={isRecording ? "Listening..." : (image ? "Describe the image or ask a question..." : "Ask me anything...")}
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        disabled={isLoading}
+                                        aria-label="Chat input"
+                                    />
+                                    <button type="button" className={`input-btn voice-btn ${isRecording ? 'recording' : ''}`} onClick={handleVoiceInput} aria-label="Use voice input">
+                                        <Icon path="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2" />
+                                    </button>
+                                    <button type="submit" className="input-btn send-btn" disabled={isLoading || (!input.trim() && !image)} aria-label="Send message">
+                                        <Icon path="M12 19V5M5 12l7-7 7 7" />
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
                     )}
                 </div>
-
-                {selectedClass !== null && !isQuizModeActive && (
-                    <div className="input-area-container">
-                        <div className="input-area">
-                           <div className="input-options">
-                                {image && (
-                                    <div className="image-preview">
-                                        <img src={image.preview} alt="Selected preview" />
-                                        <button onClick={() => { setImage(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="remove-image-btn">×</button>
-                                    </div>
+                
+                {isQuizModeActive && (
+                    <div className="modal-overlay">
+                        <div className="quiz-dialog">
+                            <div className="quiz-header">
+                                <h3>Quiz: {quizTopicForDisplay}</h3>
+                                <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="End Quiz">
+                                    <Icon path="M18 6L6 18M6 6l12 12" size={20} />
+                                </button>
+                            </div>
+                            <div className="quiz-content">
+                                {quizStage === 'question' && quizQuestions.length > 0 && (
+                                    <>
+                                        <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
+                                        <QuizView
+                                            question={quizQuestions[currentQuestionIndex]}
+                                            onAnswerSelect={handleAnswerSelect}
+                                            selectedAnswer={selectedAnswer}
+                                        />
+                                    </>
                                 )}
-                                <label className={`search-toggle ${image ? 'disabled' : ''}`} title={image ? "Search is disabled when an image is attached" : "Toggle web search"}>
-                                    <label className="switch">
-                                        <input type="checkbox" checked={isGoogleSearchEnabled} onChange={() => setGoogleSearchEnabled(p => !p)} disabled={!!image} />
-                                        <span className="slider"></span>
-                                    </label>
-                                    <span>Search the web</span>
-                                </label>
-                           </div>
-                            <form className="input-form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }}>
-                                <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" style={{ display: 'none' }} />
-                                <button type="button" className="input-btn upload-btn" onClick={() => fileInputRef.current?.click()} aria-label="Upload image">
-                                    <Icon path="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49" />
-                                </button>
-                                <input
-                                    type="text"
-                                    className="chat-input"
-                                    placeholder={isRecording ? "Listening..." : (image ? "Describe the image or ask a question..." : "Ask me anything...")}
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    disabled={isLoading}
-                                    aria-label="Chat input"
-                                />
-                                <button type="button" className={`input-btn voice-btn ${isRecording ? 'recording' : ''}`} onClick={handleVoiceInput} aria-label="Use voice input">
-                                    <Icon path="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2" />
-                                </button>
-                                <button type="submit" className="input-btn send-btn" disabled={isLoading || (!input.trim() && !image)} aria-label="Send message">
-                                    <Icon path="M12 19V5M5 12l7-7 7 7" />
-                                </button>
-                            </form>
+                                {quizStage === 'results' && (
+                                    <QuizResults
+                                        score={quizScore}
+                                        total={quizQuestions.length}
+                                        onFinish={handleFinishQuiz}
+                                        onTryAgain={() => {
+                                            handleFinishQuiz();
+                                            setShowQuizModal(true);
+                                        }}
+                                        questions={quizQuestions}
+                                        userAnswers={userAnswers}
+                                    />
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}
             </div>
-            
-            {isQuizModeActive && (
-                <div className="modal-overlay">
-                    <div className="quiz-dialog">
-                        <div className="quiz-header">
-                            <h3>Quiz: {quizTopicForDisplay}</h3>
-                            <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="End Quiz">
-                                <Icon path="M18 6L6 18M6 6l12 12" size={20} />
-                            </button>
-                        </div>
-                        <div className="quiz-content">
-                            <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
-                            {quizStage === 'question' && quizQuestions.length > 0 && (
-                                <QuizView
-                                    question={quizQuestions[currentQuestionIndex]}
-                                    onAnswerSelect={handleAnswerSelect}
-                                    selectedAnswer={selectedAnswer}
-                                />
-                            )}
-                            {quizStage === 'results' && (
-                                <QuizResults
-                                    score={quizScore}
-                                    total={quizQuestions.length}
-                                    onFinish={handleFinishQuiz}
-                                    onTryAgain={() => {
-                                        handleFinishQuiz();
-                                        setShowQuizModal(true);
-                                    }}
-                                />
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
+        </>
     );
 };
 

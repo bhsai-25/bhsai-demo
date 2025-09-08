@@ -3,7 +3,7 @@ import type { StoredChat } from '../types';
 
 let db: IDBDatabase;
 
-const DB_NAME = 'bhsAIDB';
+const DB_NAME = 'QuestionnaireDB';
 const DB_VERSION = 1;
 const CHAT_STORE_NAME = 'chats';
 
