@@ -1,13 +1,4 @@
 
-
-
-
-
-
-
-
-
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
 import { initDB, migrateFromLocalStorage, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
@@ -1175,7 +1166,7 @@ const App = () => {
                     .chat-header { display: none; padding: 12px; border-bottom: 1px solid var(--border-color); align-items: center; gap: 12px;}
                     .menu-btn { background: none; border: none; color: var(--text-primary); cursor: pointer; padding: 8px; }
                     .chat-area { flex: 1; overflow-y: auto; padding: 24px 40px; position: relative; }
-                    .chat-message { display: flex; gap: 16px; margin-bottom: 24px; width: 100%; animation: fadeIn 0.3s ease-out forwards; }
+                    .chat-message { display: flex; gap: 16px; margin-bottom: 24px; width: 100%; animation: fadeIn 0.4s ease-out forwards; }
                     .role-model { max-width: 80%; }
                     .role-user { justify-content: flex-end; }
                     .message-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--bg-tertiary); display: flex; justify-content: center; align-items: center; font-weight: bold; flex-shrink: 0; align-self: flex-start; }
@@ -1464,171 +1455,31 @@ const App = () => {
                     topic={quizTopic}
                     setTopic={setQuizTopic}
                     numQuestions={quizNumQuestions}
+                    // FIX: Changed `setNumQuestions` to `setQuizNumQuestions` to match the state setter.
                     setNumQuestions={setQuizNumQuestions}
                     difficulty={quizDifficulty}
-                    // FIX: Pass the correct state setter `setQuizDifficulty` for the `setDifficulty` prop.
                     setDifficulty={setQuizDifficulty}
                 />}
 
-                <div className="app-container">
-                    <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
-                        <div className="sidebar-header">
-                            <div className="logo-container"><BHSLogo size={40} /></div>
-                            <div>
-                                <h1 className="sidebar-title">Questionnaire</h1>
-                                <p className="sidebar-tagline">Smarter than your homework excuses!</p>
-                            </div>
-                        </div>
-                        <div className="sidebar-content">
-                            <button className="sidebar-btn" onClick={() => handleNewChat()} disabled={!selectedClass}>
-                                <Icon path="M12 5v14m-7-7h14" size={16} /> New Chat
-                            </button>
-                            <div className="chat-history-container">
-                                {chatsForClass.map((chat) => (
-                                    <div key={chat.id} className={`history-item ${chat.id === activeChatId ? 'active' : ''}`} onClick={() => handleSelectChat(chat.id)}>
-                                        <div className="history-item-title">
-                                            <span>{chat.title || chat.messages[0]?.text.substring(0, 25) || 'New Chat...'}</span>
-                                            {generatingTitleChatId === chat.id && <div className="title-loader"></div>}
-                                        </div>
-                                        <button className="history-delete-btn" onClick={(e) => { 
-                                            e.stopPropagation();
-                                            if(window.confirm('Are you sure you want to permanently delete this chat?')) {
-                                                handleDeleteChat(chat.id)
-                                            }
-                                        }} aria-label="Delete chat">
-                                            <Icon path="M18 6L6 18M6 6l12 12" size={16} />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                            <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '16px 0'}}/>
-                            <button className="sidebar-btn" onClick={() => setShowQuizModal(true)} disabled={!selectedClass || isLoading}>
-                                <Icon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" size={16} /> Start Quiz
-                            </button>
-                            <button className="sidebar-btn" onClick={handleSummarizeChat} disabled={!currentChat || currentMessages.length < 2 || isLoading}>
-                                <Icon path="M3 6h18M3 12h18M3 18h18" size={16} /> Summarize Chat
-                            </button>
-                            <button className="sidebar-btn" onClick={handleExportChat} disabled={!currentChat || currentMessages.length === 0 || isLoading}>
-                                <Icon path="M12 5v12m-4-4l4 4 4-4m7 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2" size={16} /> Export Chat
-                            </button>
-                            <button className="sidebar-btn" onClick={() => { setSelectedClass(null); setSidebarOpen(false); }}>
-                            <Icon path="M18 16.5V21a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2h4.5M12.5 2.5L21.5 11.5m-5-9l9 9" size={16} /> Change Class
-                            </button>
-                        </div>
-
-                        <div className="sidebar-footer">
-                            <div className="theme-toggle">
-                                <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
-                                <label className="switch">
-                                    <input type="checkbox" checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
-                                    <span className="slider"></span>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="chat-main">
-                        {isSidebarOpen && <div className="overlay" onClick={() => setSidebarOpen(false)}></div>}
-                        <div className="chat-header">
-                            <button className="menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
-                                <Icon path="M3 12h18M3 6h18M3 18h18" />
-                            </button>
-                            <h2 className="sidebar-title">Questionnaire</h2>
-                        </div>
-
-                        <div className="chat-area" ref={chatAreaRef}>
-                            {selectedClass === null ? <InitialClassSelector onSelectClass={setSelectedClass} /> :
-                            currentMessages.length === 0 && !isLoading ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
-                                (
-                                    currentMessages.map((msg, index) => (
-                                        <Message 
-                                            key={index}
-                                            msgIndex={index}
-                                            msg={msg} 
-                                            isLastMessage={index === currentMessages.length - 1}
-                                            isLoading={isLoading}
-                                        />
-                                    ))
-                                )
-                            }
-                            <div ref={chatEndRef} />
-
-                            {selectedClass !== null && (
-                                <button 
-                                    onClick={handleScrollToTop} 
-                                    className={`scroll-to-top-btn ${showScrollTop ? 'visible' : ''}`} 
-                                    aria-label="Scroll to top"
-                                    aria-hidden={!showScrollTop}
-                                >
-                                    <Icon path="M12 19V5M5 12l7-7 7 7" />
-                                </button>
-                            )}
-                        </div>
-
-                        {selectedClass !== null && !isQuizModeActive && (
-                            <div className="input-area-container">
-                                <div className="input-area">
-                                <div className="input-options">
-                                        {image && (
-                                            <div className="image-preview">
-                                                <img src={image.preview} alt="Selected preview" />
-                                                <button onClick={() => { setImage(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="remove-image-btn">×</button>
-                                            </div>
-                                        )}
-                                        <label className={`search-toggle ${image ? 'disabled' : ''}`} title={image ? "Search is disabled when an image is attached" : "Toggle web search"}>
-                                            <label className="switch">
-                                                <input type="checkbox" checked={isGoogleSearchEnabled} onChange={() => setGoogleSearchEnabled(p => !p)} disabled={!!image} />
-                                                <span className="slider"></span>
-                                            </label>
-                                            <span>Search the web</span>
-                                        </label>
-                                </div>
-                                    <form className="input-form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }}>
-                                        <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" style={{ display: 'none' }} />
-                                        <button type="button" className="input-btn upload-btn" onClick={() => fileInputRef.current?.click()} aria-label="Upload image">
-                                            <Icon path="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49" />
-                                        </button>
-                                        <input
-                                            type="text"
-                                            className="chat-input"
-                                            placeholder={isRecording ? "Listening..." : (image ? "Describe the image or ask a question..." : "Ask me anything...")}
-                                            value={input}
-                                            onChange={(e) => setInput(e.target.value)}
-                                            disabled={isLoading}
-                                            aria-label="Chat input"
-                                        />
-                                        <button type="button" className={`input-btn voice-btn ${isRecording ? 'recording' : ''}`} onClick={handleVoiceInput} aria-label="Use voice input">
-                                            <Icon path="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2" />
-                                        </button>
-                                        <button type="submit" className="input-btn send-btn" disabled={isLoading || (!input.trim() && !image)}>
-                                            <Icon path="M5 12h14m-7-7l7 7-7 7" />
-                                        </button>
-                                    </form>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {selectedClass !== null && isQuizModeActive && (
+                {isQuizModeActive && (
                     <div className="modal-overlay">
                         <div className="quiz-dialog">
                             <div className="quiz-header">
-                                    <h3>{quizTopicForDisplay || 'Quiz'}</h3>
-                                    <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="Finish Quiz">
+                                 <h3>{quizTopicForDisplay || 'Quiz'}</h3>
+                                 <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="Finish Quiz">
                                     <Icon path="M18 6L6 18M6 6l12 12" />
-                                    </button>
+                                 </button>
                             </div>
                             <div className="quiz-content">
                                 {quizStage === 'question' && quizQuestions.length > 0 && (
-                                        <>
+                                     <>
                                         <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
                                         <QuizView 
                                             question={quizQuestions[currentQuestionIndex]}
                                             onAnswerSelect={handleAnswerSelect}
                                             selectedAnswer={selectedAnswer}
                                         />
-                                        </>
+                                     </>
                                 )}
                                 {quizStage === 'results' && (
                                     <QuizResults 
@@ -1644,9 +1495,148 @@ const App = () => {
                                     />
                                 )}
                             </div>
-                        </div>
+                         </div>
                     </div>
                 )}
+
+
+                <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
+                    <div className="sidebar-header">
+                        <div className="logo-container"><BHSLogo size={40} /></div>
+                        <div>
+                            <h1 className="sidebar-title">Questionnaire</h1>
+                            <p className="sidebar-tagline">Smarter than your homework excuses!</p>
+                        </div>
+                    </div>
+                    <div className="sidebar-content">
+                        <button className="sidebar-btn" onClick={() => handleNewChat()} disabled={!selectedClass}>
+                            <Icon path="M12 5v14m-7-7h14" size={16} /> New Chat
+                        </button>
+                        <div className="chat-history-container">
+                            {chatsForClass.map((chat) => (
+                                 <div key={chat.id} className={`history-item ${chat.id === activeChatId ? 'active' : ''}`} onClick={() => handleSelectChat(chat.id)}>
+                                    <div className="history-item-title">
+                                        <span>{chat.title || chat.messages[0]?.text.substring(0, 25) || 'New Chat...'}</span>
+                                        {generatingTitleChatId === chat.id && <div className="title-loader"></div>}
+                                    </div>
+                                    <button className="history-delete-btn" onClick={(e) => { 
+                                        e.stopPropagation();
+                                        if(window.confirm('Are you sure you want to permanently delete this chat?')) {
+                                            handleDeleteChat(chat.id)
+                                        }
+                                     }} aria-label="Delete chat">
+                                        <Icon path="M18 6L6 18M6 6l12 12" size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                        <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '16px 0'}}/>
+                         <button className="sidebar-btn" onClick={() => setShowQuizModal(true)} disabled={!selectedClass || isLoading}>
+                            <Icon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" size={16} /> Start Quiz
+                        </button>
+                         <button className="sidebar-btn" onClick={handleSummarizeChat} disabled={!currentChat || currentMessages.length < 2 || isLoading}>
+                            <Icon path="M3 6h18M3 12h18M3 18h18" size={16} /> Summarize Chat
+                        </button>
+                        <button className="sidebar-btn" onClick={handleExportChat} disabled={!currentChat || currentMessages.length === 0 || isLoading}>
+                            <Icon path="M12 5v12m-4-4l4 4 4-4m7 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2" size={16} /> Export Chat
+                        </button>
+                        <button className="sidebar-btn" onClick={() => { setSelectedClass(null); setSidebarOpen(false); }}>
+                           <Icon path="M18 16.5V21a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2h4.5M12.5 2.5L21.5 11.5m-5-9l9 9" size={16} /> Change Class
+                        </button>
+                    </div>
+
+                    <div className="sidebar-footer">
+                        <div className="theme-toggle">
+                            <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
+                            <label className="switch">
+                                <input type="checkbox" checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
+                                <span className="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="chat-main">
+                     {isSidebarOpen && <div className="overlay" onClick={() => setSidebarOpen(false)}></div>}
+                    <div className="chat-header">
+                         <button className="menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
+                            <Icon path="M3 12h18M3 6h18M3 18h18" />
+                        </button>
+                        <h2 className="sidebar-title">Questionnaire</h2>
+                    </div>
+
+                    <div className="chat-area" ref={chatAreaRef}>
+                        {selectedClass === null ? <InitialClassSelector onSelectClass={setSelectedClass} /> :
+                         currentMessages.length === 0 && !isLoading ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
+                            (
+                                currentMessages.map((msg, index) => (
+                                    <Message 
+                                        key={index}
+                                        msgIndex={index}
+                                        msg={msg} 
+                                        isLastMessage={index === currentMessages.length - 1}
+                                        isLoading={isLoading}
+                                    />
+                                ))
+                            )
+                        }
+                        <div ref={chatEndRef} />
+
+                         {selectedClass !== null && (
+                            <button 
+                                onClick={handleScrollToTop} 
+                                className={`scroll-to-top-btn ${showScrollTop ? 'visible' : ''}`} 
+                                aria-label="Scroll to top"
+                                aria-hidden={!showScrollTop}
+                            >
+                                <Icon path="M12 19V5M5 12l7-7 7 7" />
+                            </button>
+                        )}
+                    </div>
+
+                    {selectedClass !== null && !isQuizModeActive && (
+                        <div className="input-area-container">
+                            <div className="input-area">
+                               <div className="input-options">
+                                    {image && (
+                                        <div className="image-preview">
+                                            <img src={image.preview} alt="Selected preview" />
+                                            <button onClick={() => { setImage(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="remove-image-btn">×</button>
+                                        </div>
+                                    )}
+                                    <label className={`search-toggle ${image ? 'disabled' : ''}`} title={image ? "Search is disabled when an image is attached" : "Toggle web search"}>
+                                        <label className="switch">
+                                            <input type="checkbox" checked={isGoogleSearchEnabled} onChange={() => setGoogleSearchEnabled(p => !p)} disabled={!!image} />
+                                            <span className="slider"></span>
+                                        </label>
+                                        <span>Search the web</span>
+                                    </label>
+                               </div>
+                                <form className="input-form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }}>
+                                    <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" style={{ display: 'none' }} />
+                                    <button type="button" className="input-btn upload-btn" onClick={() => fileInputRef.current?.click()} aria-label="Upload image">
+                                        <Icon path="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49" />
+                                    </button>
+                                    <input
+                                        type="text"
+                                        className="chat-input"
+                                        placeholder={isRecording ? "Listening..." : (image ? "Describe the image or ask a question..." : "Ask me anything...")}
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        disabled={isLoading}
+                                        aria-label="Chat input"
+                                    />
+                                    <button type="button" className={`input-btn voice-btn ${isRecording ? 'recording' : ''}`} onClick={handleVoiceInput} aria-label="Use voice input">
+                                        <Icon path="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2" />
+                                    </button>
+                                    <button type="submit" className="input-btn send-btn" disabled={isLoading || (!input.trim() && !image)}>
+                                        <Icon path="M5 12h14m-7-7l7 7-7 7" />
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
         </>
     );
