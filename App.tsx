@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
 import { initDB, migrateFromLocalStorage, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
@@ -143,7 +145,7 @@ Message.displayName = 'Message';
 const InitialClassSelector = ({ onSelectClass }: { onSelectClass: (grade: number) => void }) => (
     <div className="initial-class-selector">
         <BHSLogo size={80} />
-        <h1 className="title-main"><span>Welcome to </span><span className="gemini-gradient-text">Questionnaire</span></h1>
+        <h1 className="title-main"><span>Welcome to </span><span className="gemini-gradient-text">Chalkbyte</span></h1>
         <p className="subtitle">Smarter than your homework excuses!</p>
         <p className="disclaimer-warning">Please be respectful and refrain from sending inappropriate messages.</p>
         <h2>Please select your class to begin</h2>
@@ -524,7 +526,7 @@ const QuizResults = ({ score, total, onTryAgain, onFinish, questions, userAnswer
 const DesktopOnlyView = () => (
     <div className="desktop-only-container">
         <BHSLogo size={80} />
-        <h1 className="title-main gemini-gradient-text" style={{ fontSize: '3rem' }}>Questionnaire</h1>
+        <h1 className="title-main gemini-gradient-text" style={{ fontSize: '3rem' }}>Chalkbyte</h1>
         <p className="subtitle">This application is best viewed on a desktop or laptop.</p>
         <p className="disclaimer-warning" style={{ fontSize: '1rem', marginTop: '8px' }}>Please switch to a larger screen to continue.</p>
     </div>
@@ -534,7 +536,7 @@ const DesktopOnlyView = () => (
 const App = () => {
     // === State Management ===
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
-    const [isSidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true');
+    const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [selectedClass, setSelectedClass] = useState<number | null>(() => {
         const savedClass = localStorage.getItem('selectedClass');
         return savedClass ? parseInt(savedClass, 10) : null;
@@ -602,7 +604,7 @@ const App = () => {
             syllabusType = 'NEET syllabus';
         }
     
-        return `You are Questionnaire, an expert academic AI assistant for a ${studentType}. Your sole purpose is to provide accurate, strictly academic, and informational answers based on the ${syllabusType}. You must politely decline any request that is not related to school subjects, competitive exams, or educational topics. This includes refusing to engage in casual conversation, jokes, or any non-academic activities. Your responses must be factual, encouraging, and easy to understand. Prioritize safety, accuracy, and relevance in all interactions.`;
+        return `You are Chalkbyte, an expert academic AI assistant for a ${studentType}. Your sole purpose is to provide accurate, strictly academic, and informational answers based on the ${syllabusType}. You must politely decline any request that is not related to school subjects, competitive exams, or educational topics. This includes refusing to engage in casual conversation, jokes, or any non-academic activities. Your responses must be factual, encouraging, and easy to understand. Prioritize safety, accuracy, and relevance in all interactions.`;
     };
 
     // === Effects ===
@@ -933,12 +935,12 @@ const App = () => {
 
     const handleExportChat = () => {
         if (!selectedClass || currentMessages.length === 0) return;
-        const historyText = currentMessages.map(msg => `## ${msg.role === 'user' ? 'You' : 'Questionnaire'}\n\n${msg.text}`).join('\n\n---\n\n');
+        const historyText = currentMessages.map(msg => `## ${msg.role === 'user' ? 'You' : 'Chalkbyte'}\n\n${msg.text}`).join('\n\n---\n\n');
         const blob = new Blob([historyText], { type: 'text/markdown;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Questionnaire-Class${selectedClass}-chat.md`;
+        a.download = `Chalkbyte-Class${selectedClass}-chat.md`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -1550,7 +1552,7 @@ const App = () => {
                     <div className="sidebar-header">
                         <div className="logo-container"><BHSLogo size={40} /></div>
                         <div>
-                            <h1 className="sidebar-title">Questionnaire</h1>
+                            <h1 className="sidebar-title">Chalkbyte</h1>
                             <p className="sidebar-tagline">Smarter than your homework excuses!</p>
                         </div>
                     </div>
@@ -1616,7 +1618,7 @@ const App = () => {
                          <button className="menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
                             <Icon path="M3 12h18M3 6h18M3 18h18" />
                         </button>
-                        <h2 className="sidebar-title">Questionnaire</h2>
+                        <h2 className="sidebar-title">Chalkbyte</h2>
                     </div>
 
                     <div className="chat-area" ref={chatAreaRef}>
