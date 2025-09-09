@@ -1174,7 +1174,7 @@ const App = () => {
                         display: none;
                     }
                     .sidebar.collapsed .theme-toggle {
-                        width: auto;
+                        display: none;
                     }
                     .sidebar.collapsed .theme-toggle span {
                         display: none;
