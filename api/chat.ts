@@ -57,7 +57,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 config: { systemInstruction },
                 history: history || [],
             });
-            stream = await chat.sendMessageStream({ message });
+            // FIX: Pass the message string directly, not as an object.
+            stream = await chat.sendMessageStream(message);
         }
         
         // Stream the text chunks back to the client
