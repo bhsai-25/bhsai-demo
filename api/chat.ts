@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI } from "@google/genai";
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
@@ -33,33 +34,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.setHeader('Connection', 'keep-alive');
         
         let stream;
-        if (image) { 
-            // Build the conversation history with the new image message at the end.
-            // This provides context for vision-related queries.
-            const conversationHistory = (history || []).map((h: { role: any; parts: any; }) => ({
-                role: h.role,
-                parts: h.parts
-            }));
+        
+        // Build the conversation history from the provided history.
+        const conversationHistory = (history || []).map((h: { role: any; parts: any; }) => ({
+            role: h.role,
+            parts: h.parts
+        }));
 
+        if (image) { 
+            // For images, add the new image and text message to the history.
             conversationHistory.push({
                 role: 'user',
                 parts: [image, { text: message }]
             });
-
-             stream = await ai.models.generateContentStream({
-                model: 'gemini-2.5-flash',
-                contents: conversationHistory,
-                config: { systemInstruction },
-            });
         } else {
-            const chat = ai.chats.create({
-                model: 'gemini-2.5-flash',
-                config: { systemInstruction },
-                history: history || [],
+            // For text-only messages, just add the new text message.
+            conversationHistory.push({
+                role: 'user',
+                parts: [{ text: message }]
             });
-            // FIX: Pass the message string directly, not as an object.
-            stream = await chat.sendMessageStream(message);
         }
+
+        // Use generateContentStream for all streaming cases for consistency and robustness.
+        stream = await ai.models.generateContentStream({
+            model: 'gemini-2.5-flash',
+            contents: conversationHistory,
+            config: { systemInstruction },
+        });
         
         // Stream the text chunks back to the client
         for await (const chunk of stream) {
