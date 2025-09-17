@@ -2,6 +2,8 @@
 
 
 
+
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
 import { initDB, migrateFromLocalStorage, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
@@ -1242,6 +1244,8 @@ const App = () => {
                     .copy-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s ease-out; visibility: hidden; opacity: 0; }
                     .message-sources { font-size: 0.9rem; margin-top: 16px; color: var(--text-secondary); text-align: left; }
                     .message-sources hr { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
+                    .message-sources ol a { color: var(--accent-primary); text-decoration: none; }
+                    .message-sources ol a:hover { text-decoration: underline; }
                     .source-link { text-decoration: none; color: var(--accent-primary); font-weight: 600; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 4px; }
 
                     /* Code Block Enhancements */
