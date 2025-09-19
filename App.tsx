@@ -6,8 +6,11 @@
 
 
 
+
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
+import katex from 'katex';
 import { initDB, migrateFromLocalStorage, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
 import type { ChatMessage, QuizQuestion, SelectOption, StoredChat } from './types';
 
@@ -22,6 +25,62 @@ const fileToGenerativePart = async (file: File) => {
     return {
         inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
     };
+};
+
+// === KaTeX Extension for Marked ===
+const inlineMathRegex = /^\$((?:\\.|[^$])+?)\$/;
+const blockMathRegex = /^\s*\$\$([\s\S]+?)\$\$\s*(?:\n|$)/;
+
+const mathExtension = {
+    name: 'math',
+    extensions: [
+        {
+            name: 'inlineMath',
+            level: 'inline' as const,
+            start: (src: string) => src.indexOf('$'),
+            tokenizer: (src: string) => {
+                const match = src.match(inlineMathRegex);
+                if (match) {
+                    return {
+                        type: 'inlineMath',
+                        raw: match[0],
+                        text: match[1].trim(),
+                    };
+                }
+            },
+            renderer: (token: { text: string; raw: string; }) => {
+                try {
+                    return katex.renderToString(token.text, { displayMode: false, throwOnError: false });
+                } catch (e) {
+                    console.error("KaTeX inline error:", e);
+                    return `<code class="katex-error">${token.raw}</code>`;
+                }
+            },
+        },
+        {
+            name: 'blockMath',
+            level: 'block' as const,
+            start: (src: string) => src.indexOf('$$'),
+            tokenizer: (src: string) => {
+                const match = src.match(blockMathRegex);
+                if (match) {
+                    return {
+                        type: 'blockMath',
+                        raw: match[0],
+                        text: match[1].trim(),
+                    };
+                }
+            },
+            renderer: (token: { text: string; raw: string; }) => {
+                 try {
+                    return `<p class="katex-block">${katex.renderToString(token.text, { displayMode: true, throwOnError: false })}</p>`;
+                } catch (e) {
+                    console.error("KaTeX block error:", e);
+                    return `<pre class="katex-error">${token.raw}</pre>`;
+                }
+            },
+        },
+    ],
 };
 
 // === Enhanced Markdown Rendering for Code Blocks ===
@@ -48,7 +107,7 @@ renderer.code = function({ text: code, lang: infostring, escaped }) {
     `;
     return `<div class="code-block-wrapper">${originalHtml}${buttonHtml}</div>`;
 };
-marked.use({ renderer });
+marked.use({ renderer, ...mathExtension });
 
 
 // === Reusable UI Components (Moved outside App for performance) ===
@@ -619,9 +678,12 @@ const App = () => {
     *   **Encourage Deeper Thinking:** Prompt students to think further. (e.g., "That's a great question! How do you think that principle applies in real life?").
 3.  **Persona & Tone:**
     *   **Enthusiastic & Encouraging:** Your tone should be positive and motivating. Use phrases like "Great question!", "Let's break that down!", "You're on the right track!".
-    *   **Clarity is Key:** Explain concepts clearly and concisely, as if you're a patient teacher. Use formatting like lists and bold text to improve readability.
-    *   **Appropriate Emoji Use:** Use emojis sparingly and only when they enhance the educational context (e.g., a brain emoji 🧠 for a complex idea, a lightbulb 💡 for an 'aha' moment). Avoid casual emojis.
-4.  **Safety First:** Prioritize accuracy, safety, and relevance in every response. Never provide harmful or inappropriate content.`;
+4.  **Clarity & Formatting:**
+    *   Explain concepts clearly and concisely, as if you're a patient teacher.
+    *   Use standard Markdown for lists, bolding, etc., to improve readability.
+    *   For mathematical equations, **strictly use KaTeX syntax**. Use \`$$...$$\` for block equations (e.g., \`$$E = mc^2$$\`) and \`$...\$\` for inline equations (e.g., \`$\\sqrt{a^2 + b^2} = c$\`).
+    *   Use emojis sparingly and only when they enhance the educational context (e.g., a brain emoji 🧠 for a complex idea, a lightbulb 💡 for an 'aha' moment). Avoid casual emojis.
+5.  **Safety First:** Prioritize accuracy, safety, and relevance in every response. Never provide harmful or inappropriate content.`;
     };
 
     // === Effects ===
@@ -1104,6 +1166,11 @@ const App = () => {
                     * { box-sizing: border-box; margin: 0; padding: 0; }
                     body { background-color: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); transition: background-color 0.3s, color 0.3s; overflow: hidden; }
                     .gemini-gradient-text { background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+                    /* KaTeX specific styles */
+                    .katex-display { margin: 1em 0; overflow-x: auto; overflow-y: hidden; }
+                    .katex-block { text-align: center; }
+                    .katex-error { color: var(--incorrect-color); background-color: color-mix(in srgb, var(--incorrect-color) 10%, transparent); padding: 4px; border-radius: 4px; }
 
                     @keyframes fadeIn {
                         from { opacity: 0; transform: translateY(8px); }
