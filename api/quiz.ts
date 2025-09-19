@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI, Type } from "@google/genai";
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
@@ -44,9 +45,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         };
 
         const prompt = `Generate a ${validNumQuestions}-question multiple-choice quiz about "${topic}" with a difficulty level of "${difficulty}". The questions should be strictly academic and appropriate for the student described in the system instruction. Ensure there are exactly 4 options for each question.`;
-        
-        // Use streaming to avoid serverless function timeouts
-        const stream = await ai.models.generateContentStream({
+
+        const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
             config: {
@@ -56,26 +56,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             },
         });
 
-        // Set headers for streaming the response
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-
-        // Stream the JSON chunks back to the client
-        for await (const chunk of stream) {
-            if(chunk.text) {
-                res.write(chunk.text);
-            }
-        }
-        res.end();
+        // The response.text should be a JSON string that conforms to the schema
+        const quizData = JSON.parse(response.text);
+        
+        res.status(200).json(quizData);
 
     } catch (error) {
         console.error('Error in quiz generation route:', error);
-        // Ensure headers are set for error messages if streaming has not started
-        if (!res.headersSent) {
-            res.status(500).json({ error: 'Failed to generate quiz.' });
-        } else {
-            res.end();
-        }
+        res.status(500).json({ error: 'Failed to generate quiz.' });
     }
 }
