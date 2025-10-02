@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
 import { initDB, migrateFromLocalStorage, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
@@ -83,6 +75,12 @@ const Icon = ({ path, size = 24 }: { path: string, size?: number }) => (
     </svg>
 );
 
+const SolidIcon = ({ path, size = 24 }: { path: string, size?: number }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d={path} fill="currentColor" />
+    </svg>
+);
+
 const SkeletonLoader = () => (
     <div className="skeleton-loader">
         <div className="skeleton-line" style={{ width: '85%' }} />
@@ -92,7 +90,7 @@ const SkeletonLoader = () => (
 );
 
 
-const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: ChatMessage; msgIndex: number; isLastMessage: boolean; isLoading: boolean }) => {
+const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: ChatMessage; msgIndex: number; isLastMessage: boolean; isLoading: boolean; }) => {
     const [copied, setCopied] = useState(false);
     const handleCopy = () => {
         navigator.clipboard.writeText(msg.text);
@@ -100,8 +98,9 @@ const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: 
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const showTyping = isLoading && isLastMessage && msg.role === 'model';
-    
+    const showTypingIndicator = isLoading && isLastMessage && msg.role === 'model';
+    const hasText = msg.text && msg.text.trim().length > 0;
+
     const htmlContent = useMemo(() => {
         let processedText = msg.text;
         if (msg.sources && msg.sources.length > 0 && /\[\d+\]/.test(processedText)) {
@@ -120,12 +119,13 @@ const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: 
         <div className={`chat-message role-${msg.role}`}>
             {msg.role === 'model' && <div className="message-avatar"><BHSLogo size={32} /></div>}
             <div className="message-content-wrapper">
-                <div className="message-content">
+                <div className={`message-content ${showTypingIndicator && hasText ? 'is-typing' : ''}`}>
                     {msg.image && <img src={msg.image} alt="User upload" className="message-image" />}
                     
-                    {msg.text && <div dangerouslySetInnerHTML={{ __html: htmlContent }}></div>}
-                    
-                    {showTyping && <SkeletonLoader />}
+                    {hasText 
+                        ? <div dangerouslySetInnerHTML={{ __html: htmlContent }}></div>
+                        : (showTypingIndicator && <SkeletonLoader />)
+                    }
 
                      {msg.sources && msg.sources.length > 0 && (
                         <div className="message-sources">
@@ -135,7 +135,7 @@ const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: 
                         </div>
                     )}
                 </div>
-                {msg.role === 'model' && msg.text && !showTyping && (
+                {msg.role === 'model' && hasText && !showTypingIndicator && (
                      <button onClick={handleCopy} className="copy-btn" aria-label="Copy entire message">
                          {copied ? <Icon path={checkIconPath} size={16} /> : <Icon path={copyIconPath} size={16} />}
                      </button>
@@ -578,6 +578,7 @@ const App = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const recognitionRef = useRef<any>(null);
     const chatAreaRef = useRef<HTMLDivElement>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     const currentChat = useMemo(() => chatsForClass.find(c => c.id === activeChatId), [chatsForClass, activeChatId]);
     const currentMessages = currentChat?.messages || [];
@@ -778,6 +779,10 @@ const App = () => {
     const handleSendMessage = async (messageText: string) => {
         if ((!messageText.trim() && !image) || isLoading || !selectedClass || !activeChatId) return;
 
+        abortControllerRef.current?.abort(); // Abort any ongoing request
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         const currentChat = chatsForClass.find(c => c.id === activeChatId);
         if (!currentChat) return;
     
@@ -806,6 +811,7 @@ const App = () => {
     
             const response = await fetch('/api/chat', {
                 method: 'POST',
+                signal: controller.signal,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: messageText,
@@ -841,18 +847,34 @@ const App = () => {
             }
     
         } catch (error) {
-            console.error("Error sending message:", error);
-            await updateLastMessage({ role: 'model', text: `Sorry, something went wrong. ${(error as Error).message}` });
+            if ((error as Error).name === 'AbortError') {
+                 console.log('Stream stopped by user.');
+                 // Get the latest state from the DOM and save it
+                 const finalChatState = chatsForClass.find(c => c.id === activeChatId);
+                 if (finalChatState && finalChatState.messages.length > 0) {
+                     const lastMessage = finalChatState.messages[finalChatState.messages.length - 1];
+                     await updateLastMessage(lastMessage, true);
+                 }
+            } else {
+                console.error("Error sending message:", error);
+                await updateLastMessage({ role: 'model', text: `Sorry, something went wrong. ${(error as Error).message}` });
+            }
         } finally {
             setIsLoading(false);
+            abortControllerRef.current = null;
             if (currentChat.messages.length === 0 && selectedClass) { // Only title for the first message exchange
                 // Refetch chat state to get the latest messages for title generation
                  const finalChatState = chatsForClass.find(c => c.id === activeChatId);
-                 if (finalChatState && finalChatState.messages.length === 2) {
+                 if (finalChatState && finalChatState.messages.length >= 2) {
                     generateTitleForChat(selectedClass, activeChatId, finalChatState.messages);
                  }
             }
         }
+    };
+
+    const handleStopGenerating = () => {
+        abortControllerRef.current?.abort();
+        setIsLoading(false);
     };
 
     const updateLastMessage = async (newMessage: ChatMessage, saveToDb = true) => {
@@ -1115,6 +1137,23 @@ const App = () => {
                         50% { text-shadow: 0 0 15px rgba(255, 179, 0, 0.4), 0 0 25px rgba(245, 124, 0, 0.2); }
                     }
 
+                    @keyframes view-fade-in {
+                        from { opacity: 0; transform: translateY(10px); }
+                        to { opacity: 1; transform: translateY(0); }
+                    }
+                    .view-wrapper {
+                        animation: view-fade-in 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+                        height: 100%;
+                    }
+
+                    @keyframes modal-show {
+                        from { opacity: 0; transform: scale(0.95) translateY(10px); }
+                        to { opacity: 1; transform: scale(1) translateY(0); }
+                    }
+                    .modal-content, .quiz-dialog {
+                        animation: modal-show 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+                    }
+
                     /* === Initial Class Selector === */
                     .initial-class-selector { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; padding: 20px; gap: 16px; position: relative; }
                     .initial-class-selector svg { margin-bottom: 8px; }
@@ -1239,6 +1278,22 @@ const App = () => {
                     .role-user .message-content-wrapper { justify-content: flex-end; }
                     
                     .message-content { line-height: 1.6; flex-grow: 1; overflow: hidden; font-family: 'Google Sans', sans-serif; }
+
+                    @keyframes blink {
+                        50% { opacity: 0; }
+                    }
+                    .message-content.is-typing > div:first-of-type > p:last-of-type::after,
+                    .message-content.is-typing > div:first-of-type > ul:last-of-type > li:last-of-type::after,
+                    .message-content.is-typing > div:first-of-type > ol:last-of-type > li:last-of-type::after,
+                    .message-content.is-typing > div:first-of-type > pre:last-of-type::after {
+                        content: '▋';
+                        animation: blink 1s step-end infinite;
+                        display: inline-block;
+                        margin-left: 4px;
+                        color: var(--text-primary);
+                        vertical-align: baseline;
+                    }
+                    
                     .role-model .message-content {
                         font-size: 1rem;
                         font-weight: 400;
@@ -1257,6 +1312,7 @@ const App = () => {
                     .message-content code:not(pre > code) { background-color: var(--bg-tertiary); padding: 2px 4px; border-radius: 6px; font-family: 'Courier New', Courier, monospace; }
                     .message-image { max-width: 300px; border-radius: 12px; margin-bottom: 8px; }
                     .copy-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s ease-out; visibility: hidden; opacity: 0; }
+                    .stop-btn { visibility: visible; opacity: 1; }
                     .message-sources { font-size: 0.9rem; margin-top: 16px; color: var(--text-secondary); text-align: left; }
                     .message-sources hr { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
                     .message-sources ol a { color: var(--accent-primary); text-decoration: none; }
@@ -1270,7 +1326,7 @@ const App = () => {
                     .copy-code-btn:hover { background: var(--border-color); color: var(--text-primary); }
 
                     /* Chat Welcome Screen */
-                    .chat-welcome-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; animation: fadeIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+                    .chat-welcome-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; }
                     .chat-welcome-screen h1 { font-family: 'Google Sans', sans-serif; font-size: 5rem; font-weight: 500; }
                     .chat-welcome-screen p { margin-top: 8px; font-size: 1.1rem; color: var(--text-secondary); max-width: 400px; }
                     .chat-welcome-screen .prompt-suggestions { margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; max-width: 700px; }
@@ -1305,6 +1361,8 @@ const App = () => {
                     .voice-btn.recording { color: #e53935; }
                     .send-btn { right: 8px; background-color: var(--accent-primary); color: var(--bg-primary); }
                     .send-btn:disabled { background-color: var(--text-secondary); cursor: not-allowed; opacity: 0.7; }
+                    .stop-btn-input { right: 8px; background-color: var(--accent-primary); color: var(--bg-primary); border: 1px solid var(--border-color); }
+                    .stop-btn-input:hover { background-color: #e9e9e9; }
                     .image-preview { position: relative; width: fit-content; }
                     .image-preview img { max-height: 80px; border-radius: 12px; border: 1px solid var(--border-color); }
                     .remove-image-btn { position: absolute; top: -8px; right: -8px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 12px; }
@@ -1319,7 +1377,6 @@ const App = () => {
 
                     /* === Quiz Modal === */
                     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--modal-overlay-bg); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 200; display: flex; justify-content: center; align-items: center; animation: fadeIn 0.2s ease-out; }
-                    .modal-content { background: var(--bg-primary); padding: 32px; border-radius: 20px; width: 90%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
                     .quiz-setup-modal .modal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
                     .quiz-setup-modal .modal-header-icon { color: var(--accent-primary); }
                     .quiz-setup-modal .modal-header h3 { font-family: var(--font-heading); font-size: 1.8rem; font-weight: 700; }
@@ -1355,19 +1412,6 @@ const App = () => {
                     .custom-select-option[aria-selected="true"] { font-weight: 500; color: var(--accent-primary); }
                     
                     /* === Quiz Dialog === */
-                    .quiz-dialog {
-                        background: var(--bg-primary);
-                        border-radius: 16px;
-                        width: 90%;
-                        max-width: 800px;
-                        height: 90%;
-                        max-height: 700px;
-                        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-                        display: flex;
-                        flex-direction: column;
-                        overflow: hidden;
-                        animation: fadeIn 0.3s ease-out;
-                    }
                     .quiz-header {
                         display: flex;
                         justify-content: space-between;
@@ -1522,9 +1566,9 @@ const App = () => {
                     topic={quizTopic}
                     setTopic={setQuizTopic}
                     numQuestions={quizNumQuestions}
-                    // FIX: Changed `setNumQuestions` to `setQuizNumQuestions` to match the state setter.
                     setNumQuestions={setQuizNumQuestions}
                     difficulty={quizDifficulty}
+                    // Fix: Pass the correct state setter 'setQuizDifficulty' instead of the undefined 'setDifficulty'.
                     setDifficulty={setQuizDifficulty}
                 />}
 
@@ -1641,20 +1685,30 @@ const App = () => {
                     </div>
 
                     <div className="chat-area" ref={chatAreaRef}>
-                        {selectedClass === null ? <InitialClassSelector onSelectClass={setSelectedClass} /> :
-                         currentMessages.length === 0 && !isLoading ? <ChatWelcomeScreen suggestions={promptSuggestions[selectedClass] || []} onSendMessage={handleSendMessage} /> :
-                            (
-                                currentMessages.map((msg, index) => (
-                                    <Message 
-                                        key={index}
-                                        msgIndex={index}
-                                        msg={msg} 
-                                        isLastMessage={index === currentMessages.length - 1}
-                                        isLoading={isLoading}
+                        {selectedClass === null ? (
+                            <div key="selector" className="view-wrapper">
+                                <InitialClassSelector onSelectClass={setSelectedClass} />
+                            </div>
+                        ) : (
+                            <div key="chat" className="view-wrapper">
+                                {currentMessages.length === 0 && !isLoading ? (
+                                    <ChatWelcomeScreen 
+                                        suggestions={promptSuggestions[selectedClass] || []} 
+                                        onSendMessage={handleSendMessage} 
                                     />
-                                ))
-                            )
-                        }
+                                ) : (
+                                    currentMessages.map((msg, index) => (
+                                        <Message 
+                                            key={index}
+                                            msgIndex={index}
+                                            msg={msg} 
+                                            isLastMessage={index === currentMessages.length - 1}
+                                            isLoading={isLoading}
+                                        />
+                                    ))
+                                )}
+                            </div>
+                        )}
                         <div ref={chatEndRef} />
 
                          {selectedClass !== null && (
@@ -1689,24 +1743,32 @@ const App = () => {
                                </div>
                                 <form className="input-form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }}>
                                     <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" style={{ display: 'none' }} />
-                                    <button type="button" className="input-btn upload-btn" onClick={() => fileInputRef.current?.click()} aria-label="Upload image">
+                                    <button type="button" className="input-btn upload-btn" onClick={() => fileInputRef.current?.click()} aria-label="Upload image" disabled={isLoading}>
                                         <Icon path="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49" />
                                     </button>
                                     <input
                                         type="text"
                                         className="chat-input"
-                                        placeholder={isRecording ? "Listening..." : (image ? "Describe the image or ask a question..." : "Ask me anything...")}
+                                        placeholder={isLoading ? "Generating response..." : (isRecording ? "Listening..." : (image ? "Describe the image or ask a question..." : "Ask me anything..."))}
                                         value={input}
                                         onChange={(e) => setInput(e.target.value)}
                                         disabled={isLoading}
                                         aria-label="Chat input"
                                     />
-                                    <button type="button" className={`input-btn voice-btn ${isRecording ? 'recording' : ''}`} onClick={handleVoiceInput} aria-label="Use voice input">
-                                        <Icon path="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2" />
-                                    </button>
-                                    <button type="submit" className="input-btn send-btn" disabled={isLoading || (!input.trim() && !image)}>
-                                        <Icon path="M5 12h14m-7-7l7 7-7 7" />
-                                    </button>
+                                    {isLoading ? (
+                                        <button type="button" className="input-btn stop-btn-input" onClick={handleStopGenerating} aria-label="Stop generating">
+                                            <SolidIcon path="M6 6h12v12H6z" />
+                                        </button>
+                                    ) : (
+                                        <>
+                                            <button type="button" className={`input-btn voice-btn ${isRecording ? 'recording' : ''}`} onClick={handleVoiceInput} aria-label="Use voice input">
+                                                <Icon path="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2" />
+                                            </button>
+                                            <button type="submit" className="input-btn send-btn" disabled={!input.trim() && !image}>
+                                                <Icon path="M5 12h14m-7-7l7 7-7 7" />
+                                            </button>
+                                        </>
+                                    )}
                                 </form>
                             </div>
                         </div>
