@@ -1,6 +1,6 @@
 
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Content } from "@google/genai";
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 // This runs on the server, so process.env.API_KEY is secure
@@ -14,11 +14,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
         const { message, history, systemInstruction, image, isGoogleSearchEnabled } = req.body;
 
+        // The history from the client is already in the correct format.
+        const conversationHistory: Content[] = history || [];
+
+        // Add the current user message to the history.
+        if (image) {
+            conversationHistory.push({
+                role: 'user',
+                parts: [image, { text: message }]
+            });
+        } else {
+            conversationHistory.push({
+                role: 'user',
+                parts: [{ text: message }]
+            });
+        }
+
         // --- Handle Google Search (non-streaming) ---
         if (isGoogleSearchEnabled && !image) {
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
-                contents: message,
+                contents: conversationHistory, // Pass the full conversation history
                 config: { tools: [{ googleSearch: {} }] }
             });
             // Extract only the necessary data into a clean JSON object.
@@ -33,32 +49,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         
-        let stream;
-        
-        // Build the conversation history from the provided history.
-        const conversationHistory = (history || []).map((h: { role: any; parts: any; }) => ({
-            role: h.role,
-            parts: h.parts
-        }));
-
-        if (image) { 
-            // For images, add the new image and text message to the history.
-            conversationHistory.push({
-                role: 'user',
-                parts: [image, { text: message }]
-            });
-        } else {
-            // For text-only messages, just add the new text message.
-            conversationHistory.push({
-                role: 'user',
-                parts: [{ text: message }]
-            });
-        }
-
-        // Use generateContentStream for all streaming cases for consistency and robustness.
-        stream = await ai.models.generateContentStream({
+        const stream = await ai.models.generateContentStream({
             model: 'gemini-2.5-flash',
-            contents: conversationHistory,
+            contents: conversationHistory, // History is already prepared
             config: { systemInstruction },
         });
         
@@ -72,6 +65,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     } catch (error) {
         console.error('Error in API route:', error);
-        res.status(500).json({ error: 'Failed to process chat message.' });
+        // Ensure that if headers are already sent, we don't try to send JSON
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to process chat message.' });
+        } else {
+            // If headers are sent (i.e., we are streaming), we can't send a JSON error.
+            // We just end the response. The client will have to handle the abrupt end.
+            res.end();
+        }
     }
 }
