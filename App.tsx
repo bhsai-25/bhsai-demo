@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
-import { initDB, migrateFromLocalStorage, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
+import { initDB, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
 import type { ChatMessage, QuizQuestion, SelectOption, StoredChat } from './types';
 
 
@@ -21,6 +22,7 @@ const renderer = new Renderer();
 const originalCodeRenderer = renderer.code;
 const copyIconPath = "M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2";
 const checkIconPath = "M20 6L9 17l-5-5";
+const pinIconPath = "M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6h-5.6z";
 
 renderer.code = function({ text: code, lang: infostring, escaped }) {
     const originalHtml = originalCodeRenderer.call(this, { text: code, lang: infostring, escaped });
@@ -274,7 +276,10 @@ const CustomSelect = ({ options, value, onChange, label, id }: {
                     aria-expanded={isOpen}
                     aria-labelledby={`${id}-label ${id}`}
                 >
-                    <span>{selectedOption ? selectedOption.label : 'Select...'}</span>
+                    <div className="selected-option-content">
+                        {selectedOption?.iconPath && <Icon path={selectedOption.iconPath} size={20} />}
+                        <span>{selectedOption ? selectedOption.label : 'Select...'}</span>
+                    </div>
                     <Icon path="m6 9 6 6 6-6" />
                 </button>
                 {isOpen && (
@@ -295,7 +300,16 @@ const CustomSelect = ({ options, value, onChange, label, id }: {
                                 onClick={() => handleOptionClick(option.value)}
                                 onMouseEnter={() => setActiveIndex(index)}
                             >
-                                {option.label}
+                                <div className="option-content">
+                                    {option.iconPath && <Icon path={option.iconPath} size={24} />}
+                                    <div className="option-text-content">
+                                        <div className="option-label-line">
+                                            <span className="option-label">{option.label}</span>
+                                            {option.isNew && <span className="new-badge">NEW</span>}
+                                        </div>
+                                        {option.description && <span className="option-description">{option.description}</span>}
+                                    </div>
+                                </div>
                             </li>
                         ))}
                     </ul>
@@ -536,6 +550,10 @@ const DesktopOnlyView = () => (
     </div>
 );
 
+// Icon paths for models
+const modelIconThesis = "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"; // A simple hexagon/block
+const modelIconAether = "M13 2L3 14h9l-1 8 10-12h-9l1-8z"; // Lightning bolt
+const modelIconAether2 = "M12 2.69l.34 1.16h1.22l-.98.71.37 1.16-1-.72-1 .72.37-1.16-.98-.71h1.22L12 2.69zM12 17.27l-4.15 2.54.79-4.6-3.36-3.28 4.62-.67L12 7l2.09 4.26 4.62.67-3.36 3.28.79 4.6L12 17.27z"; // A star with sparkles
 
 const App = () => {
     // === State Management ===
@@ -559,6 +577,7 @@ const App = () => {
     const [isGoogleSearchEnabled, setGoogleSearchEnabled] = useState(true);
     const [isRecording, setIsRecording] = useState(false);
     const [showScrollTop, setShowScrollTop] = useState(false);
+    const [selectedModel, setSelectedModel] = useState('Aether2');
     
     // Quiz State
     const [showQuizModal, setShowQuizModal] = useState(false);
@@ -583,7 +602,22 @@ const App = () => {
     const currentChat = useMemo(() => chatsForClass.find(c => c.id === activeChatId), [chatsForClass, activeChatId]);
     const currentMessages = currentChat?.messages || [];
 
+    // Sort chats for display: pinned first, then by creation date
+    const sortedChatsForClass = useMemo(() => {
+        return [...chatsForClass].sort((a, b) => {
+            if (a.isPinned && !b.isPinned) return -1;
+            if (!a.isPinned && b.isPinned) return 1;
+            return b.createdAt - a.createdAt;
+        });
+    }, [chatsForClass]);
+
     // === Data ===
+    const modelOptions: SelectOption[] = [
+        { value: 'Aether2', label: 'Aether 2', description: 'Fastest and most capable, added support for skill subjects.', isNew: true, iconPath: modelIconAether2 },
+        { value: 'Aether', label: 'Aether', description: 'Added support for competitive exams.', iconPath: modelIconAether },
+        { value: 'Thesis', label: 'Thesis', description: 'reliable, fast and balanced. Our first model.', iconPath: modelIconThesis },
+    ];
+
     const promptSuggestions: { [key: number]: string[] } = {
         6: ["Explain the solar system.", "Who was the first emperor of the Mauryan dynasty?", "Summarize a story from the 'Honeysuckle' textbook."],
         7: ["What is the difference between acids and bases?", "Describe the function of the human heart.", "Explain the rise of the Mughal Empire."],
@@ -636,7 +670,7 @@ const App = () => {
     }, [isSidebarCollapsed]);
 
     useEffect(() => {
-        if (selectedClass) {
+        if (selectedClass !== null) {
             localStorage.setItem('selectedClass', selectedClass.toString());
         } else {
             localStorage.removeItem('selectedClass');
@@ -648,9 +682,9 @@ const App = () => {
         const setup = async () => {
             try {
                 await initDB();
-                await migrateFromLocalStorage();
                 setDbReady(true);
-            } catch (err) {
+            } catch (err)
+            {
                 console.error("Database initialization failed:", err);
                 alert("There was an error initializing the application's storage. Please ensure your browser supports IndexedDB and it's not disabled (e.g., in private browsing). The app may not function correctly.");
             }
@@ -944,6 +978,17 @@ const App = () => {
             }
         }
     };
+
+    const handleTogglePin = async (chatId: string) => {
+        const chatToUpdate = chatsForClass.find(c => c.id === chatId);
+        if (!chatToUpdate) return;
+
+        const updatedChat = { ...chatToUpdate, isPinned: !chatToUpdate.isPinned };
+        await updateChat(updatedChat);
+
+        // Update state, sorting will be handled by the useMemo hook
+        setChatsForClass(prev => prev.map(c => c.id === chatId ? updatedChat : c));
+    };
     
     const handleSummarizeChat = async () => {
         if (!currentChat || currentMessages.length < 2 || isLoading) return;
@@ -970,20 +1015,6 @@ const App = () => {
         } finally {
             setIsLoading(false);
         }
-    };
-
-    const handleExportChat = () => {
-        if (!selectedClass || currentMessages.length === 0) return;
-        const historyText = currentMessages.map(msg => `## ${msg.role === 'user' ? 'You' : 'Chalkbyte'}\n\n${msg.text}`).join('\n\n---\n\n');
-        const blob = new Blob([historyText], { type: 'text/markdown;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Chalkbyte-Class${selectedClass}-chat.md`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
     };
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1168,25 +1199,34 @@ const App = () => {
 
                     /* === Main Layout === */
                     .app-container { display: flex; height: 100vh; }
-                    .sidebar { width: 260px; background-color: var(--bg-secondary); padding: 24px; display: flex; flex-direction: column; border-right: 1px solid var(--border-color); transition: width 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), margin-left 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); transform: translateX(0); }
+                    .sidebar { width: 300px; background-color: var(--bg-secondary); padding: 24px; display: flex; flex-direction: column; border-right: 1px solid var(--border-color); transition: width 0.35s ease-in-out, transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), margin-left 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); transform: translateX(0); }
                     .chat-main { flex: 1; display: flex; flex-direction: column; position: relative; background-color: var(--bg-primary); transition: width 0.3s ease-in-out; }
                     
                     /* === Sidebar === */
-                    .sidebar-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-                    .sidebar-header .logo-container { display: flex; justify-content: center; align-items: center; width: 48px; height: 48px; flex-shrink: 0; margin-left: -8px; }
+                    .sidebar-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+                    .sidebar-header .logo-container { display: flex; justify-content: center; align-items: center; width: 48px; height: 48px; flex-shrink: 0; }
                     .sidebar-header .logo-container svg { transition: transform 0.3s ease-out, filter 0.4s ease-out; }
-                    .sidebar-title { font-family: var(--font-heading); font-size: 1.5rem; transform-origin: left center; transition: transform 0.3s ease-out; line-height: 1.2; }
-                    .sidebar-tagline { font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px; line-height: 1.3; }
-                    .sidebar-btn { width: 100%; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 0.9rem; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 8px; font-family: var(--font-heading); font-weight: 500; position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; }
+                    
+                    .sidebar-btn { width: 100%; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 1rem; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 10px; font-family: var(--font-heading); font-weight: 500; position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; }
                     .sidebar-btn:disabled { background-color: var(--bg-tertiary); color: var(--text-secondary); cursor: not-allowed; opacity: 0.6; }
                     .sidebar-content { display: flex; flex-direction: column; gap: 12px; flex-grow: 1; overflow: hidden; }
                     .chat-history-container { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; margin-top: 16px; padding-right: 8px; }
-                    .history-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 12px; cursor: pointer; transition: background-color 0.2s ease-out; }
+                    .history-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 12px; cursor: pointer; transition: background-color 0.2s ease-out; gap: 8px; }
                     .history-item.active { background-color: var(--accent-primary); color: var(--bg-primary); }
+                    .history-item.pinned .history-pin-btn { color: var(--accent-primary); }
+                    .history-item.active.pinned .history-pin-btn { color: var(--bg-primary); }
                     .history-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem; }
-                    .history-delete-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; opacity: 0; transition: opacity 0.2s ease-out; }
-                    .history-item.active .history-delete-btn { color: var(--bg-primary); }
+                    .history-item-controls { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+                    .history-action-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; opacity: 0; transition: all 0.2s ease-out; padding: 4px; border-radius: 50%; display: flex; }
+                    .history-action-btn:hover { background-color: var(--bg-secondary); }
+                    .history-item.active .history-action-btn { color: var(--bg-primary); }
+                    .history-item.active .history-action-btn:hover { background-color: color-mix(in srgb, var(--bg-primary) 15%, transparent); }
+                    .history-item:hover .history-action-btn, .history-item.pinned .history-pin-btn { opacity: 1; }
+                    
                     .sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 16px; }
+                    .user-info { display: flex; align-items: center; gap: 10px; padding: 12px; font-size: 1rem; color: var(--text-secondary); background-color: var(--bg-tertiary); border-radius: 12px; font-family: var(--font-heading); font-weight: 500; }
+                    .sidebar.collapsed .user-info { justify-content: center; width: 56px; }
+                    .sidebar.collapsed .user-info span { display: none; }
                     .theme-toggle { display: flex; justify-content: space-between; align-items: center; padding: 8px; background-color: var(--bg-tertiary); border-radius: 999px; }
                     .theme-toggle > span { text-transform: uppercase; font-size: 0.75rem; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px; padding-left: 12px; }
                     .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
@@ -1201,53 +1241,58 @@ const App = () => {
                     .title-loader { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--text-secondary); border-top-color: transparent; border-radius: 50%; animation: spinner 0.6s linear infinite; margin-left: 8px; vertical-align: middle; }
                     .history-item-title { display: flex; align-items: center; overflow: hidden; }
                     
-                    /* === Sidebar Collapsed State === */
-                    .sidebar.collapsed {
-                        width: 88px;
-                        padding-left: 0;
-                        padding-right: 0;
+                    /* === Model Selector in Header === */
+                    .model-selector-container {
+                        flex-grow: 1;
+                        min-width: 150px;
                     }
-                    .sidebar.collapsed .sidebar-header {
-                        justify-content: center;
+                    .model-selector-container .modal-form-group {
+                        margin-bottom: 0;
                     }
+                    .model-selector-container .custom-select-label {
+                        border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px;
+                        overflow: hidden; padding: 0; position: absolute; width: 1px;
+                    }
+                    .model-selector-container .custom-select-button {
+                        padding: 10px 12px; font-size: 1rem; height: 100%;
+                    }
+                    .model-selector-container .custom-select-options {
+                        width: 250px; /* Constrain width to fit within sidebar padding */
+                        right: 0;
+                        left: auto;
+                    }
+                    
+                    /* === Sidebar Collapsed State & Animation === */
+                    .sidebar-header > div:not(.logo-container) {
+                        white-space: nowrap;
+                    }
+                    .sidebar-btn span {
+                        display: inline-block;
+                        vertical-align: middle;
+                        white-space: nowrap;
+                        overflow: hidden;
+                    }
+                    .sidebar.collapsed { width: 88px; padding-left: 0; padding-right: 0; }
+                    .sidebar.collapsed .sidebar-header { justify-content: center; }
+                    .sidebar.collapsed .sidebar-header .logo-container { margin-left: 0; }
                     .sidebar.collapsed .sidebar-header > div:not(.logo-container) {
                         display: none;
                     }
-                    .sidebar.collapsed .sidebar-header .logo-container {
-                        margin-left: 0;
-                    }
                     .sidebar.collapsed .sidebar-content,
-                    .sidebar.collapsed .sidebar-footer {
-                        align-items: center;
-                    }
-                    .sidebar.collapsed .sidebar-btn {
-                        justify-content: center;
-                        width: 56px;
-                    }
-                    .sidebar.collapsed .sidebar-btn span {
-                        display: none;
-                    }
+                    .sidebar.collapsed .sidebar-footer { align-items: center; }
+                    .sidebar.collapsed .sidebar-btn { justify-content: center; width: 56px; }
+                    .sidebar.collapsed .sidebar-btn span { display: none; }
                     .sidebar.collapsed .chat-history-container,
-                    .sidebar.collapsed .sidebar-content > hr {
-                        display: none;
-                    }
-                    .sidebar.collapsed .theme-toggle {
-                        display: none;
-                    }
-                    .sidebar.collapsed .theme-toggle span {
-                        display: none;
-                    }
-                    .collapse-btn {
-                        margin-top: 8px;
-                    }
-
+                    .sidebar.collapsed .sidebar-content > hr,
+                    .sidebar.collapsed .theme-toggle { display: none; }
+                    .collapse-btn { margin-top: 8px; }
+                    
                     /* === Futuristic Hover Effects (Desktop Only) === */
                     .class-button::before, .sidebar-btn::before, .modal-btn.submit::before {
                          content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out;
                     }
                     
                     @media (hover: hover) {
-                        .sidebar-header:hover .sidebar-title { transform: scale(1.05); }
                         .sidebar-header:hover svg { 
                             transform: scale(1.1); 
                             filter: drop-shadow(0 0 4px rgba(242, 169, 59, 0.4)) 
@@ -1258,7 +1303,6 @@ const App = () => {
                         [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover { color: #fff; }
                         .class-button:hover::before, .sidebar-btn:not(:disabled):hover::before { opacity: 1; }
                         .history-item:hover { background-color: var(--bg-tertiary); }
-                        .history-item:hover .history-delete-btn { opacity: 1; }
                         .chat-message:hover .copy-btn { visibility: visible; opacity: 1; }
                         .modal-btn.submit:not(:disabled):hover { color: #fff; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
                         [data-theme='dark'] .modal-btn.submit:not(:disabled):hover { color: #fff; }
@@ -1406,10 +1450,24 @@ const App = () => {
                     .custom-select-button:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 2px rgba(136, 215, 228, 0.3); }
                     .custom-select-button svg { transition: transform 0.2s ease-in-out; }
                     .custom-select-button[aria-expanded="true"] svg { transform: rotate(180deg); }
+                    .selected-option-content { display: flex; align-items: center; gap: 8px; }
                     .custom-select-options { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 12px; padding: 8px; z-index: 10; max-height: 200px; overflow-y: auto; box-shadow: var(--shadow); list-style: none; }
-                    .custom-select-option { padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: background-color 0.2s; font-size: 1.1rem; }
+                    .custom-select-option { padding: 12px 14px; border-radius: 8px; cursor: pointer; transition: background-color 0.2s; }
                     .custom-select-option.active { background-color: var(--bg-tertiary); }
-                    .custom-select-option[aria-selected="true"] { font-weight: 500; color: var(--accent-primary); }
+                    .custom-select-option[aria-selected="true"] .option-label { font-weight: 700; color: var(--accent-primary); }
+                    .option-content { display: flex; align-items: center; gap: 12px; }
+                    .option-content svg { flex-shrink: 0; color: var(--text-secondary); transition: color 0.2s; }
+                    .custom-select-option.active .option-content svg, .custom-select-option[aria-selected="true"] .option-content svg { color: var(--accent-primary); }
+                    .option-text-content { display: flex; flex-direction: column; gap: 2px; }
+                    .option-label-line { display: flex; justify-content: space-between; align-items: center; }
+                    .option-label { font-size: 1rem; font-weight: 700; color: var(--text-primary); }
+                    .option-description { 
+                        font-size: 0.8rem; 
+                        color: var(--text-secondary); 
+                        white-space: normal; /* Allow text to wrap */
+                        word-break: break-word; /* Break long words if needed */
+                    }
+                    .new-badge { background: var(--gemini-gradient); color: #fff; font-size: 0.65rem; font-weight: 700; padding: 2px 6px; border-radius: 99px; line-height: 1; }
                     
                     /* === Quiz Dialog === */
                     .quiz-header {
@@ -1559,221 +1617,229 @@ const App = () => {
                         .role-model .message-content { font-size: 0.95rem; }
                     }
                 `}</style>
+                
+                <>
+                    {showQuizModal && <QuizModal
+                        onStart={handleStartQuiz}
+                        onCancel={() => setShowQuizModal(false)}
+                        topic={quizTopic}
+                        setTopic={setQuizTopic}
+                        numQuestions={quizNumQuestions}
+                        setNumQuestions={setQuizNumQuestions}
+                        difficulty={quizDifficulty}
+                        setDifficulty={setQuizDifficulty}
+                    />}
 
-                {showQuizModal && <QuizModal
-                    onStart={handleStartQuiz}
-                    onCancel={() => setShowQuizModal(false)}
-                    topic={quizTopic}
-                    setTopic={setQuizTopic}
-                    numQuestions={quizNumQuestions}
-                    setNumQuestions={setQuizNumQuestions}
-                    difficulty={quizDifficulty}
-                    // Fix: Pass the correct state setter 'setQuizDifficulty' instead of the undefined 'setDifficulty'.
-                    setDifficulty={setQuizDifficulty}
-                />}
-
-                {isQuizModeActive && (
-                    <div className="modal-overlay">
-                        <div className="quiz-dialog">
-                            <div className="quiz-header">
-                                 <h3>{quizTopicForDisplay || 'Quiz'}</h3>
-                                 <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="Finish Quiz">
-                                    <Icon path="M18 6L6 18M6 6l12 12" />
-                                 </button>
-                            </div>
-                            <div className="quiz-content">
-                                {quizStage === 'question' && quizQuestions.length > 0 && (
-                                     <>
-                                        <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
-                                        <QuizView 
-                                            question={quizQuestions[currentQuestionIndex]}
-                                            onAnswerSelect={handleAnswerSelect}
-                                            selectedAnswer={selectedAnswer}
-                                        />
-                                     </>
-                                )}
-                                {quizStage === 'results' && (
-                                    <QuizResults 
-                                        score={quizScore}
-                                        total={quizQuestions.length}
-                                        onTryAgain={() => { 
-                                            handleFinishQuiz(); 
-                                            setShowQuizModal(true); 
-                                        }}
-                                        onFinish={handleFinishQuiz}
-                                        questions={quizQuestions}
-                                        userAnswers={userAnswers}
-                                    />
-                                )}
-                            </div>
-                         </div>
-                    </div>
-                )}
-
-
-                <div className={`sidebar ${isSidebarOpen ? 'open' : ''} ${isSidebarCollapsed ? 'collapsed' : ''}`}>
-                    <div className="sidebar-header">
-                        <div className="logo-container"><BHSLogo size={40} /></div>
-                        <div>
-                            <h1 className="sidebar-title">Chalkbyte</h1>
-                            <p className="sidebar-tagline">Smarter than your homework excuses!</p>
-                        </div>
-                    </div>
-                    <div className="sidebar-content">
-                        <button className="sidebar-btn" onClick={() => handleNewChat()} disabled={!selectedClass}>
-                            <Icon path="M12 5v14m-7-7h14" size={16} /> <span>New Chat</span>
-                        </button>
-                        <div className="chat-history-container">
-                            {chatsForClass.map((chat) => (
-                                 <div key={chat.id} className={`history-item ${chat.id === activeChatId ? 'active' : ''}`} onClick={() => handleSelectChat(chat.id)}>
-                                    <div className="history-item-title">
-                                        <span>{chat.title || chat.messages[0]?.text.substring(0, 25) || 'New Chat...'}</span>
-                                        {generatingTitleChatId === chat.id && <div className="title-loader"></div>}
-                                    </div>
-                                    <button className="history-delete-btn" onClick={(e) => { 
-                                        e.stopPropagation();
-                                        if(window.confirm('Are you sure you want to permanently delete this chat?')) {
-                                            handleDeleteChat(chat.id)
-                                        }
-                                     }} aria-label="Delete chat">
-                                        <Icon path="M18 6L6 18M6 6l12 12" size={16} />
+                    {isQuizModeActive && (
+                        <div className="modal-overlay">
+                            <div className="modal-content quiz-dialog">
+                                <div className="quiz-header">
+                                    <h3>{quizTopicForDisplay || 'Quiz'}</h3>
+                                    <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="Finish Quiz">
+                                        <Icon path="M18 6L6 18M6 6l12 12" />
                                     </button>
                                 </div>
-                            ))}
-                        </div>
-                        <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '16px 0'}}/>
-                         <button className="sidebar-btn" onClick={() => setShowQuizModal(true)} disabled={!selectedClass || isLoading}>
-                            <Icon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" size={16} /> <span>Start Quiz</span>
-                        </button>
-                         <button className="sidebar-btn" onClick={handleSummarizeChat} disabled={!currentChat || currentMessages.length < 2 || isLoading}>
-                            <Icon path="M3 6h18M3 12h18M3 18h18" size={16} /> <span>Summarize Chat</span>
-                        </button>
-                        <button className="sidebar-btn" onClick={handleExportChat} disabled={!currentChat || currentMessages.length === 0 || isLoading}>
-                            <Icon path="M12 5v12m-4-4l4 4 4-4m7 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2" size={16} /> <span>Export Chat</span>
-                        </button>
-                        <button className="sidebar-btn" onClick={() => { setSelectedClass(null); setSidebarOpen(false); }}>
-                           <Icon path="M18 16.5V21a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2h4.5M12.5 2.5L21.5 11.5m-5-9l9 9" size={16} /> <span>Change Class</span>
-                        </button>
-                    </div>
-
-                    <div className="sidebar-footer">
-                        <div className="theme-toggle">
-                            <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
-                            <label className="switch">
-                                <input type="checkbox" checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
-                                <span className="slider"></span>
-                            </label>
-                        </div>
-                         <button 
-                            className="sidebar-btn collapse-btn"
-                            onClick={() => setSidebarCollapsed(prev => !prev)}
-                            aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                        >
-                            <Icon path={isSidebarCollapsed ? "M9 18l6-6-6-6" : "M15 18l-6-6 6-6"} size={16} />
-                            {!isSidebarCollapsed && <span>Collapse</span>}
-                        </button>
-                    </div>
-                </div>
-
-                <div className="chat-main">
-                     {isSidebarOpen && <div className="overlay" onClick={() => setSidebarOpen(false)}></div>}
-                    <div className="chat-header">
-                         <button className="menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
-                            <Icon path="M3 12h18M3 6h18M3 18h18" />
-                        </button>
-                        <h2 className="sidebar-title">Chalkbyte</h2>
-                    </div>
-
-                    <div className="chat-area" ref={chatAreaRef}>
-                        {selectedClass === null ? (
-                            <div key="selector" className="view-wrapper">
-                                <InitialClassSelector onSelectClass={setSelectedClass} />
-                            </div>
-                        ) : (
-                            <div key="chat" className="view-wrapper">
-                                {currentMessages.length === 0 && !isLoading ? (
-                                    <ChatWelcomeScreen 
-                                        suggestions={promptSuggestions[selectedClass] || []} 
-                                        onSendMessage={handleSendMessage} 
-                                    />
-                                ) : (
-                                    currentMessages.map((msg, index) => (
-                                        <Message 
-                                            key={index}
-                                            msgIndex={index}
-                                            msg={msg} 
-                                            isLastMessage={index === currentMessages.length - 1}
-                                            isLoading={isLoading}
-                                        />
-                                    ))
-                                )}
-                            </div>
-                        )}
-                        <div ref={chatEndRef} />
-
-                         {selectedClass !== null && (
-                            <button 
-                                onClick={handleScrollToTop} 
-                                className={`scroll-to-top-btn ${showScrollTop ? 'visible' : ''}`} 
-                                aria-label="Scroll to top"
-                                aria-hidden={!showScrollTop}
-                            >
-                                <Icon path="M12 19V5M5 12l7-7 7 7" />
-                            </button>
-                        )}
-                    </div>
-
-                    {selectedClass !== null && !isQuizModeActive && (
-                        <div className="input-area-container">
-                            <div className="input-area">
-                               <div className="input-options">
-                                    {image && (
-                                        <div className="image-preview">
-                                            <img src={image.preview} alt="Selected preview" />
-                                            <button onClick={() => { setImage(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="remove-image-btn">×</button>
-                                        </div>
-                                    )}
-                                    <label className={`search-toggle ${image ? 'disabled' : ''}`} title={image ? "Search is disabled when an image is attached" : "Toggle web search"}>
-                                        <label className="switch">
-                                            <input type="checkbox" checked={isGoogleSearchEnabled} onChange={() => setGoogleSearchEnabled(p => !p)} disabled={!!image} />
-                                            <span className="slider"></span>
-                                        </label>
-                                        <span>Search the web</span>
-                                    </label>
-                               </div>
-                                <form className="input-form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }}>
-                                    <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" style={{ display: 'none' }} />
-                                    <button type="button" className="input-btn upload-btn" onClick={() => fileInputRef.current?.click()} aria-label="Upload image" disabled={isLoading}>
-                                        <Icon path="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49" />
-                                    </button>
-                                    <input
-                                        type="text"
-                                        className="chat-input"
-                                        placeholder={isLoading ? "Generating response..." : (isRecording ? "Listening..." : (image ? "Describe the image or ask a question..." : "Ask me anything..."))}
-                                        value={input}
-                                        onChange={(e) => setInput(e.target.value)}
-                                        disabled={isLoading}
-                                        aria-label="Chat input"
-                                    />
-                                    {isLoading ? (
-                                        <button type="button" className="input-btn stop-btn-input" onClick={handleStopGenerating} aria-label="Stop generating">
-                                            <SolidIcon path="M6 6h12v12H6z" />
-                                        </button>
-                                    ) : (
+                                <div className="quiz-content">
+                                    {quizStage === 'question' && quizQuestions.length > 0 && (
                                         <>
-                                            <button type="button" className={`input-btn voice-btn ${isRecording ? 'recording' : ''}`} onClick={handleVoiceInput} aria-label="Use voice input">
-                                                <Icon path="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2" />
-                                            </button>
-                                            <button type="submit" className="input-btn send-btn" disabled={!input.trim() && !image}>
-                                                <Icon path="M5 12h14m-7-7l7 7-7 7" />
-                                            </button>
+                                            <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
+                                            <QuizView 
+                                                question={quizQuestions[currentQuestionIndex]}
+                                                onAnswerSelect={handleAnswerSelect}
+                                                selectedAnswer={selectedAnswer}
+                                            />
                                         </>
                                     )}
-                                </form>
+                                    {quizStage === 'results' && (
+                                        <QuizResults 
+                                            score={quizScore}
+                                            total={quizQuestions.length}
+                                            onTryAgain={() => { 
+                                                handleFinishQuiz(); 
+                                                setShowQuizModal(true); 
+                                            }}
+                                            onFinish={handleFinishQuiz}
+                                            questions={quizQuestions}
+                                            userAnswers={userAnswers}
+                                        />
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
-                </div>
+
+
+                    <div className={`sidebar ${isSidebarOpen ? 'open' : ''} ${isSidebarCollapsed ? 'collapsed' : ''}`}>
+                        <div className="sidebar-header">
+                            <div className="logo-container"><BHSLogo size={40} /></div>
+                            <div className="model-selector-container">
+                            <CustomSelect
+                                    id="model-selector"
+                                    label="Select AI Model"
+                                    options={modelOptions}
+                                    value={selectedModel}
+                                    onChange={(value) => setSelectedModel(value as string)}
+                            />
+                            </div>
+                        </div>
+                        <div className="sidebar-content">
+                            <button className="sidebar-btn" onClick={() => handleNewChat()} disabled={!selectedClass}>
+                                <Icon path="M12 5v14m-7-7h14" size={16} /> <span>New Chat</span>
+                            </button>
+                            <div className="chat-history-container">
+                                {sortedChatsForClass.map((chat) => (
+                                    <div key={chat.id} className={`history-item ${chat.id === activeChatId ? 'active' : ''} ${chat.isPinned ? 'pinned' : ''}`} onClick={() => handleSelectChat(chat.id)}>
+                                        <div className="history-item-title">
+                                            <span>{chat.title || chat.messages[0]?.text.substring(0, 25) || 'New Chat...'}</span>
+                                            {generatingTitleChatId === chat.id && <div className="title-loader"></div>}
+                                        </div>
+                                        <div className="history-item-controls">
+                                            <button className="history-action-btn history-pin-btn" onClick={(e) => { e.stopPropagation(); handleTogglePin(chat.id); }} aria-label={chat.isPinned ? "Unpin chat" : "Pin chat"}>
+                                                {chat.isPinned ? <SolidIcon path={pinIconPath} size={16} /> : <Icon path={pinIconPath} size={16} />}
+                                            </button>
+                                            <button className="history-action-btn history-delete-btn" onClick={(e) => { 
+                                                e.stopPropagation();
+                                                if(window.confirm('Are you sure you want to permanently delete this chat?')) {
+                                                    handleDeleteChat(chat.id)
+                                                }
+                                            }} aria-label="Delete chat">
+                                                <Icon path="M18 6L6 18M6 6l12 12" size={16} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '16px 0'}}/>
+                            <button className="sidebar-btn sidebar-btn--utility" onClick={() => setShowQuizModal(true)} disabled={!selectedClass || isLoading}>
+                                <Icon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" size={16} /> <span>Start Quiz</span>
+                            </button>
+                            <button className="sidebar-btn sidebar-btn--utility" onClick={handleSummarizeChat} disabled={!currentChat || currentMessages.length < 2 || isLoading}>
+                                <Icon path="M3 6h18M3 12h18M3 18h18" size={16} /> <span>Summarize Chat</span>
+                            </button>
+                            <button className="sidebar-btn sidebar-btn--utility" onClick={() => { setSelectedClass(null); setSidebarOpen(false); }} disabled={!selectedClass}>
+                            <Icon path="M18 16.5V21a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2h4.5M12.5 2.5L21.5 11.5m-5-9l9 9" size={16} /> <span>Change Class</span>
+                            </button>
+                        </div>
+
+                        <div className="sidebar-footer">
+                            <div className="theme-toggle">
+                                <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
+                                <label className="switch">
+                                    <input type="checkbox" checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
+                                    <span className="slider"></span>
+                                </label>
+                            </div>
+                            <button 
+                                className="sidebar-btn collapse-btn"
+                                onClick={() => setSidebarCollapsed(prev => !prev)}
+                                aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                            >
+                                <Icon path={isSidebarCollapsed ? "M9 18l6-6-6-6" : "M15 18l-6-6 6-6"} size={16} />
+                                {!isSidebarCollapsed && <span>Collapse</span>}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="chat-main">
+                        {isSidebarOpen && <div className="overlay" onClick={() => setSidebarOpen(false)}></div>}
+                        <div className="chat-header">
+                            <button className="menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
+                                <Icon path="M3 12h18M3 6h18M3 18h18" />
+                            </button>
+                            <h2 className="sidebar-title">Chalkbyte</h2>
+                        </div>
+
+                        <div className="chat-area" ref={chatAreaRef}>
+                            {selectedClass === null ? (
+                                <div key="selector" className="view-wrapper">
+                                    <InitialClassSelector onSelectClass={setSelectedClass} />
+                                </div>
+                            ) : (
+                                <div key="chat" className="view-wrapper">
+                                    {currentMessages.length === 0 && !isLoading ? (
+                                        <ChatWelcomeScreen 
+                                            suggestions={promptSuggestions[selectedClass] || []} 
+                                            onSendMessage={handleSendMessage} 
+                                        />
+                                    ) : (
+                                        currentMessages.map((msg, index) => (
+                                            <Message 
+                                                key={index}
+                                                msgIndex={index}
+                                                msg={msg} 
+                                                isLastMessage={index === currentMessages.length - 1}
+                                                isLoading={isLoading}
+                                            />
+                                        ))
+                                    )}
+                                </div>
+                            )}
+                            <div ref={chatEndRef} />
+
+                            {selectedClass !== null && (
+                                <button 
+                                    onClick={handleScrollToTop} 
+                                    className={`scroll-to-top-btn ${showScrollTop ? 'visible' : ''}`} 
+                                    aria-label="Scroll to top"
+                                    aria-hidden={!showScrollTop}
+                                >
+                                    <Icon path="M12 19V5M5 12l7-7 7 7" />
+                                </button>
+                            )}
+                        </div>
+
+                        {selectedClass !== null && !isQuizModeActive && (
+                            <div className="input-area-container">
+                                <div className="input-area">
+                                <div className="input-options">
+                                        {image && (
+                                            <div className="image-preview">
+                                                <img src={image.preview} alt="Selected preview" />
+                                                <button onClick={() => { setImage(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="remove-image-btn">×</button>
+                                            </div>
+                                        )}
+                                        <label className={`search-toggle ${image ? 'disabled' : ''}`} title={image ? "Search is disabled when an image is attached" : "Toggle web search"}>
+                                            <label className="switch">
+                                                <input type="checkbox" checked={isGoogleSearchEnabled} onChange={() => setGoogleSearchEnabled(p => !p)} disabled={!!image} />
+                                                <span className="slider"></span>
+                                            </label>
+                                            <span>Search the web</span>
+                                        </label>
+                                </div>
+                                    <form className="input-form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }}>
+                                        <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" style={{ display: 'none' }} />
+                                        <button type="button" className="input-btn upload-btn" onClick={() => fileInputRef.current?.click()} aria-label="Upload image" disabled={isLoading}>
+                                            <Icon path="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49" />
+                                        </button>
+                                        <input
+                                            type="text"
+                                            className="chat-input"
+                                            placeholder={isLoading ? "Generating response..." : (isRecording ? "Listening..." : (image ? "Describe the image or ask a question..." : "Ask me anything..."))}
+                                            value={input}
+                                            onChange={(e) => setInput(e.target.value)}
+                                            disabled={isLoading}
+                                            aria-label="Chat input"
+                                        />
+                                        {isLoading ? (
+                                            <button type="button" className="input-btn stop-btn-input" onClick={handleStopGenerating} aria-label="Stop generating">
+                                                <SolidIcon path="M6 6h12v12H6z" />
+                                            </button>
+                                        ) : (
+                                            <>
+                                                <button type="button" className={`input-btn voice-btn ${isRecording ? 'recording' : ''}`} onClick={handleVoiceInput} aria-label="Use voice input">
+                                                    <Icon path="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2" />
+                                                </button>
+                                                <button type="submit" className="input-btn send-btn" disabled={!input.trim() && !image}>
+                                                    <Icon path="M5 12h14m-7-7l7 7-7 7" />
+                                                </button>
+                                            </>
+                                        )}
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </>
             </div>
         </>
     );

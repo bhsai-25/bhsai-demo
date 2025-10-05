@@ -1,4 +1,7 @@
 
+
+
+
 export interface GroundingChunk { web: { uri: string; title: string; } }
 
 export type ChatMessage = {
@@ -17,6 +20,7 @@ export type StoredChat = Chat & {
     id: string;
     classNum: number;
     createdAt: number;
+    isPinned?: boolean;
 };
 
 export type QuizQuestion = {
@@ -29,4 +33,7 @@ export type QuizQuestion = {
 export type SelectOption = {
   value: number | string;
   label: string;
+  description?: string;
+  isNew?: boolean;
+  iconPath?: string;
 };
