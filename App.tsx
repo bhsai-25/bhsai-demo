@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked, Renderer } from 'marked';
 import { initDB, getChatsForClass, addChat, updateChat, deleteChat } from './utils/db';
@@ -100,8 +99,8 @@ const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: 
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const showTypingIndicator = isLoading && isLastMessage && msg.role === 'model';
-    const hasText = msg.text && msg.text.trim().length > 0;
+    const showSkeleton = isLoading && isLastMessage && msg.role === 'model' && !msg.text.trim() && (!msg.sources || msg.sources.length === 0);
+    const hasContent = (msg.text && msg.text.trim().length > 0) || (msg.sources && msg.sources.length > 0);
 
     const htmlContent = useMemo(() => {
         let processedText = msg.text;
@@ -121,23 +120,27 @@ const Message = React.memo(({ msg, msgIndex, isLastMessage, isLoading }: { msg: 
         <div className={`chat-message role-${msg.role}`}>
             {msg.role === 'model' && <div className="message-avatar"><BHSLogo size={32} /></div>}
             <div className="message-content-wrapper">
-                <div className={`message-content ${showTypingIndicator && hasText ? 'is-typing' : ''}`}>
+                <div className="message-content">
                     {msg.image && <img src={msg.image} alt="User upload" className="message-image" />}
-                    
-                    {hasText 
-                        ? <div dangerouslySetInnerHTML={{ __html: htmlContent }}></div>
-                        : (showTypingIndicator && <SkeletonLoader />)
+                     {showSkeleton
+                        ? <SkeletonLoader />
+                        : hasContent && (
+                            <div className="animated-content">
+                                {msg.text && msg.text.trim().length > 0 &&
+                                    <div dangerouslySetInnerHTML={{ __html: htmlContent }}></div>
+                                }
+                                {msg.sources && msg.sources.length > 0 && (
+                                    <div className="message-sources">
+                                        <hr />
+                                        <p><strong>Sources from the web:</strong></p>
+                                        <ol>{msg.sources.map((source, i) => (<li key={i} id={`source-${msgIndex}-${i}`}><a href={source.web.uri} target="_blank" rel="noopener noreferrer">{source.web.title || new URL(source.web.uri).hostname}</a></li>))}</ol>
+                                    </div>
+                                )}
+                            </div>
+                        )
                     }
-
-                     {msg.sources && msg.sources.length > 0 && (
-                        <div className="message-sources">
-                            <hr />
-                            <p><strong>Sources from the web:</strong></p>
-                            <ol>{msg.sources.map((source, i) => (<li key={i} id={`source-${msgIndex}-${i}`}><a href={source.web.uri} target="_blank" rel="noopener noreferrer">{source.web.title || new URL(source.web.uri).hostname}</a></li>))}</ol>
-                        </div>
-                    )}
                 </div>
-                {msg.role === 'model' && hasText && !showTypingIndicator && (
+                {msg.role === 'model' && hasContent && !(isLoading && isLastMessage) && (
                      <button onClick={handleCopy} className="copy-btn" aria-label="Copy entire message">
                          {copied ? <Icon path={checkIconPath} size={16} /> : <Icon path={copyIconPath} size={16} />}
                      </button>
@@ -348,57 +351,65 @@ const QuizModal = ({
 
     return (
         <div className="modal-overlay">
-            <div className="modal-content quiz-setup-modal">
-                <div className="modal-header">
-                    <BHSLogo className="modal-header-icon" />
-                    <h3>Quiz <span className="gemini-gradient-text">Setup</span></h3>
-                </div>
-                 <p className="modal-subtitle">Enter a topic and select your quiz options below.</p>
-                <form onSubmit={onStart}>
-                     <div className="modal-form-group">
-                        <label htmlFor="quiz-topic">Topic</label>
-                        <div className="modal-input-wrapper">
-                            <Icon path="M9.5 3A6.5 6.5 0 0116 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 019.5 16a6.5 6.5 0 110-13m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z" size={20} />
-                            <input
-                                id="quiz-topic"
-                                type="text"
-                                className="modal-input"
-                                value={topic}
-                                onChange={(e) => setTopic(e.target.value)}
-                                placeholder="e.g., Newton's Laws of Motion"
-                                aria-label="Quiz topic"
-                                autoFocus
-                            />
+            <div className="modal-container">
+                <div className="modal-content quiz-setup-modal">
+                    <div className="modal-header">
+                        <BHSLogo className="modal-header-icon" />
+                        <h3>Quiz <span className="gemini-gradient-text">Setup</span></h3>
+                    </div>
+                     <p className="modal-subtitle">Enter a topic and select your quiz options below.</p>
+                    <form onSubmit={onStart}>
+                         <div className="modal-form-group">
+                            <label htmlFor="quiz-topic">Topic</label>
+                            <div className="modal-input-wrapper">
+                                <Icon path="M9.5 3A6.5 6.5 0 0116 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 019.5 16a6.5 6.5 0 110-13m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z" size={20} />
+                                <input
+                                    id="quiz-topic"
+                                    type="text"
+                                    className="modal-input"
+                                    value={topic}
+                                    onChange={(e) => setTopic(e.target.value)}
+                                    placeholder="e.g., Newton's Laws of Motion"
+                                    aria-label="Quiz topic"
+                                    autoFocus
+                                />
+                            </div>
                         </div>
-                    </div>
-                    
-                    <CustomSelect
-                        id="difficulty-level"
-                        label="Difficulty"
-                        options={quizDifficultyOptions}
-                        value={difficulty}
-                        onChange={(value) => setDifficulty(value as string)}
-                    />
+                        
+                        <CustomSelect
+                            id="difficulty-level"
+                            label="Difficulty"
+                            options={quizDifficultyOptions}
+                            value={difficulty}
+                            onChange={(value) => setDifficulty(value as string)}
+                        />
 
-                    <CustomSelect
-                        id="num-questions"
-                        label="Number of Questions"
-                        options={quizNumOptions}
-                        value={numQuestions}
-                        onChange={(value) => setNumQuestions(value as number)}
-                    />
+                        <CustomSelect
+                            id="num-questions"
+                            label="Number of Questions"
+                            options={quizNumOptions}
+                            value={numQuestions}
+                            onChange={(value) => setNumQuestions(value as number)}
+                        />
 
-                    <div className="modal-buttons">
-                        <button type="button" className="modal-btn cancel" onClick={onCancel}>Cancel</button>
-                        <button type="submit" className="modal-btn submit" disabled={!topic.trim()}>Start Quiz</button>
-                    </div>
-                </form>
+                        <div className="modal-buttons">
+                            <button type="button" className="modal-btn cancel" onClick={onCancel}>Cancel</button>
+                            <button type="submit" className="modal-btn submit" disabled={!topic.trim()}>Start Quiz</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     );
 };
 
-const QuizView = ({ question, onAnswerSelect, selectedAnswer }: { question: QuizQuestion; onAnswerSelect: (index: number) => void; selectedAnswer: number | null }) => {
+const QuizView = ({ question, onAnswerSelect, selectedAnswer, onNextQuestion, isLastQuestion }: { 
+    question: QuizQuestion; 
+    onAnswerSelect: (index: number) => void; 
+    selectedAnswer: number | null;
+    onNextQuestion: () => void;
+    isLastQuestion: boolean;
+}) => {
     const hasAnswered = selectedAnswer !== null;
     return (
         <div className="quiz-view">
@@ -428,7 +439,14 @@ const QuizView = ({ question, onAnswerSelect, selectedAnswer }: { question: Quiz
                 })}
             </div>
             {hasAnswered && (
-                <div className="quiz-explanation" dangerouslySetInnerHTML={{ __html: marked.parse(`**Explanation:** ${question.explanation}`) as string }}>
+                <div className="quiz-feedback-section">
+                    <div className="quiz-explanation" dangerouslySetInnerHTML={{ __html: marked.parse(`**Explanation:** ${question.explanation}`) as string }} />
+                    <div className="quiz-navigation">
+                        <button onClick={onNextQuestion} className="quiz-next-btn">
+                            <span>{isLastQuestion ? 'See Results' : 'Next Question'}</span>
+                            <Icon path="M5 12h14m-7-7l7 7-7 7" size={20} />
+                        </button>
+                    </div>
                 </div>
             )}
         </div>
@@ -452,31 +470,18 @@ const QuizResults = ({ score, total, onTryAgain, onFinish, questions, userAnswer
     questions: QuizQuestion[];
     userAnswers: (number | null)[];
 }) => {
-    const [displayScore, setDisplayScore] = useState(0);
     const percentage = total > 0 ? (score / total) * 100 : 0;
+    const incorrectCount = total - score;
     const radius = 52;
     const circumference = 2 * Math.PI * radius;
     const offset = circumference - (percentage / 100) * circumference;
 
-    useEffect(() => {
-        if (score === 0) return;
-        let start = 0;
-        const end = score;
-        const duration = 800;
-        const incrementTime = Math.max(1, Math.floor(duration / end));
-
-        const timer = setInterval(() => {
-            start += 1;
-            if (start >= end) {
-                setDisplayScore(end);
-                clearInterval(timer);
-            } else {
-                setDisplayScore(start);
-            }
-        }, incrementTime);
-
-        return () => clearInterval(timer);
-    }, [score]);
+    const performanceMessage = useMemo(() => {
+        if (percentage >= 90) return "Excellent work! You've mastered this topic.";
+        if (percentage >= 70) return "Great job! You have a solid understanding.";
+        if (percentage >= 50) return "Good effort! A little more practice will help.";
+        return "Keep practicing! Reviewing the answers will help you improve.";
+    }, [percentage]);
 
     const incorrectAnswers = questions.map((q, i) => ({
         question: q,
@@ -486,7 +491,23 @@ const QuizResults = ({ score, total, onTryAgain, onFinish, questions, userAnswer
 
     return (
         <div className="quiz-results-view">
-            <h2 className="results-title">Quiz Complete!</h2>
+            <h2 className="results-title gemini-gradient-text">Quiz Report</h2>
+
+            <div className="score-summary-grid">
+                <div className="summary-stat">
+                    <span className="stat-value">{total}</span>
+                    <span className="stat-label">Total Questions</span>
+                </div>
+                <div className="summary-stat">
+                    <span className="stat-value correct-text">{score}</span>
+                    <span className="stat-label">Correct</span>
+                </div>
+                <div className="summary-stat">
+                    <span className="stat-value incorrect-text">{incorrectCount}</span>
+                    <span className="stat-label">Incorrect</span>
+                </div>
+            </div>
+
             <div className="score-chart">
                 <svg width="120" height="120" viewBox="0 0 120 120">
                     <defs>
@@ -509,16 +530,15 @@ const QuizResults = ({ score, total, onTryAgain, onFinish, questions, userAnswer
                     />
                 </svg>
                 <div className="score-text">
-                    <strong>{displayScore}</strong>
-                    <span>/ {total}</span>
+                    <strong>{percentage.toFixed(0)}%</strong>
+                    <span>Accuracy</span>
                 </div>
             </div>
-            <p className="score-summary">You answered {score} out of {total} questions correctly.</p>
+            <p className="score-summary">{performanceMessage}</p>
 
             {incorrectAnswers.length > 0 && (
                 <div className="performance-report">
-                    <h3>Performance Report</h3>
-                    <p className="report-intro">Here are the questions you missed:</p>
+                    <h3>Review Your Answers</h3>
                     {incorrectAnswers.map(item => (
                         <div key={item.index} className="report-item">
                             <div className="report-question" dangerouslySetInnerHTML={{ __html: marked.parse(item.question.question) as string }} />
@@ -550,11 +570,6 @@ const DesktopOnlyView = () => (
     </div>
 );
 
-// Icon paths for models
-const modelIconThesis = "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"; // A simple hexagon/block
-const modelIconAether = "M13 2L3 14h9l-1 8 10-12h-9l1-8z"; // Lightning bolt
-const modelIconAether2 = "M12 2.69l.34 1.16h1.22l-.98.71.37 1.16-1-.72-1 .72.37-1.16-.98-.71h1.22L12 2.69zM12 17.27l-4.15 2.54.79-4.6-3.36-3.28 4.62-.67L12 7l2.09 4.26 4.62.67-3.36 3.28.79 4.6L12 17.27z"; // A star with sparkles
-
 const App = () => {
     // === State Management ===
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
@@ -577,7 +592,6 @@ const App = () => {
     const [isGoogleSearchEnabled, setGoogleSearchEnabled] = useState(true);
     const [isRecording, setIsRecording] = useState(false);
     const [showScrollTop, setShowScrollTop] = useState(false);
-    const [selectedModel, setSelectedModel] = useState('Aether2');
     
     // Quiz State
     const [showQuizModal, setShowQuizModal] = useState(false);
@@ -612,24 +626,25 @@ const App = () => {
     }, [chatsForClass]);
 
     // === Data ===
-    const modelOptions: SelectOption[] = [
-        { value: 'Aether2', label: 'Aether 2', description: 'Fastest and most capable, added support for skill subjects.', isNew: true, iconPath: modelIconAether2 },
-        { value: 'Aether', label: 'Aether', description: 'Added support for competitive exams.', iconPath: modelIconAether },
-        { value: 'Thesis', label: 'Thesis', description: 'reliable, fast and balanced. Our first model.', iconPath: modelIconThesis },
-    ];
-
     const promptSuggestions: { [key: number]: string[] } = {
-        6: ["Explain the solar system.", "Who was the first emperor of the Mauryan dynasty?", "Summarize a story from the 'Honeysuckle' textbook."],
-        7: ["What is the difference between acids and bases?", "Describe the function of the human heart.", "Explain the rise of the Mughal Empire."],
-        8: ["What is a cell and what are its main parts?", "Explain the process of crop production.", "Describe the Indian Rebellion of 1857."],
-        9: ["What are Newton's laws of motion?", "Explain the structure of an atom.", "Discuss the features of democracy."],
-        10: ["Explain chemical reactions and equations.", "What were the causes of World War I?", "Describe the process of reflection of light by spherical mirrors."],
-        11: ["Explain the concept of sets in mathematics.", "What is projectile motion?", "Discuss the fundamental rights in the Indian Constitution."],
-        12: ["Explain electric charge and fields.", "Discuss the principles of inheritance and variation.", "What is the structure of a C++ program?"],
-        13: ["Solve a challenging problem on rotational mechanics.", "Explain the concept of chemical equilibrium.", "What are some important topics in calculus for JEE?"], // JEE
-        14: ["Describe the process of DNA replication.", "Explain the human endocrine system.", "What are the key concepts in organic chemistry for NEET?"] // NEET
+        6: ["Explain the solar system for a 6th grader.", "Who was Ashoka the Great?", "Summarize a story from the 'Honeysuckle' textbook.", "What are the different types of plants and their parts?", "Describe the water cycle with a simple diagram.", "Tell me about the Indus Valley Civilization.", "What is a noun and give five examples?", "How do you find the area of a rectangle?"],
+        7: ["What is the difference between acids and bases?", "Describe the function of the human heart.", "Explain the rise and fall of the Mughal Empire.", "How does photosynthesis work?", "What was the importance of the Silk Road?", "Explain the properties of triangles and their types.", "Write a short paragraph on 'A visit to a historical place'.", "Solve a simple linear equation like 2x + 5 = 15."],
+        8: ["What is a cell and what are its main organelles?", "Explain the process of crop production and management.", "Describe the causes and effects of the Indian Rebellion of 1857.", "What is friction and its advantages and disadvantages?", "Tell me about the Harappan civilization's town planning.", "How do you solve linear equations in one variable?", "Explain the difference between stars and planets.", "What is a balanced diet?"],
+        9: ["Explain Newton's three laws of motion with examples.", "Explain the structure of an atom with Bohr's model.", "Discuss the key features of a democratic government.", "What were the main causes of the French Revolution?", "Explain the difference between speed, velocity, and acceleration.", "Describe the different types of tissues in the human body.", "Why is the sky blue?", "Factorize the polynomial x² + 7x + 12."],
+        10: ["Explain different types of chemical reactions with examples.", "What were the main causes and consequences of World War I?", "Describe the process of reflection and refraction of light.", "How does the human respiratory system work?", "What is federalism and how does it function in India?", "Explain the concept of trigonometry with the unit circle.", "What is the importance of sustainable development?", "How do you prove that √2 is irrational?"],
+        11: ["Explain the concept of sets, subsets, and power sets.", "What is projectile motion and derive its trajectory equation?", "Discuss the fundamental rights guaranteed by the Indian Constitution.", "Describe the structure of a flower and the process of pollination.", "What are the different states of matter and the gas laws?", "Explain the basic principles of accounting.", "What is a limit in calculus?", "Explain the law of conservation of energy."],
+        12: ["Explain Coulomb's law and electric fields.", "Discuss Mendel's principles of inheritance and variation.", "What is the structure of a C++ or Python program for a simple task?", "Explain the working of a p-n junction diode and a transistor.", "Describe the process and applications of DNA fingerprinting.", "What are the main functions of management in business?", "Explain the concept of electromagnetic induction.", "What are the different market structures in economics?"],
+        13: ["Solve a challenging problem on rotational mechanics.", "Explain the concept of chemical equilibrium and Le Chatelier's principle.", "What are some important topics in calculus for JEE?", "Describe the laws of thermodynamics and their applications.", "Explain isomerism in organic compounds with examples.", "Solve a problem related to matrices and determinants.", "Discuss the wave nature of light and interference.", "Explain the periodic trends in the properties of elements."], // JEE
+        14: ["Describe the process of DNA replication in detail.", "Explain the human endocrine system and the hormones involved.", "What are the key concepts in organic chemistry for NEET, like reaction mechanisms?", "Explain the classification of the animal kingdom with key characteristics of each phylum.", "Describe the detailed mechanism of muscle contraction.", "What are the laws of Mendelian inheritance and their exceptions?", "Explain the process of photosynthesis in C3 and C4 plants.", "Describe the structure and function of the human eye."] // NEET
     };
     
+    const randomizedSuggestions = useMemo(() => {
+        if (!selectedClass) return [];
+        const allSuggestions = promptSuggestions[selectedClass] || [];
+        // Shuffle and pick 3
+        return [...allSuggestions].sort(() => 0.5 - Math.random()).slice(0, 3);
+    }, [selectedClass, activeChatId]); // Reroll when class or chat changes
+
     const getSystemInstruction = (classNum: number | null): string => {
         if (!classNum) return '';
         let studentType = `Class ${classNum}`;
@@ -795,12 +810,16 @@ const App = () => {
             if (res.ok) {
                 const { title } = await res.json();
                 if (title) {
-                    const chatToUpdate = chatsForClass.find(c => c.id === chatId);
-                    if (chatToUpdate) {
-                        const updatedChat = { ...chatToUpdate, title };
-                        await updateChat(updatedChat);
-                        setChatsForClass(prev => prev.map(c => c.id === chatId ? updatedChat : c));
-                    }
+                    // It's possible the user has switched chats. We need to find the chat from the main list.
+                    setChatsForClass(prev => {
+                        const chatToUpdate = prev.find(c => c.id === chatId);
+                        if (chatToUpdate) {
+                            const updatedChat = { ...chatToUpdate, title };
+                            updateChat(updatedChat); // Update DB in the background
+                            return prev.map(c => c.id === chatId ? updatedChat : c);
+                        }
+                        return prev;
+                    });
                 }
             }
         } catch (e) {
@@ -812,11 +831,11 @@ const App = () => {
     
     const handleSendMessage = async (messageText: string) => {
         if ((!messageText.trim() && !image) || isLoading || !selectedClass || !activeChatId) return;
-
+    
         abortControllerRef.current?.abort(); // Abort any ongoing request
         const controller = new AbortController();
         abortControllerRef.current = controller;
-
+    
         const currentChat = chatsForClass.find(c => c.id === activeChatId);
         if (!currentChat) return;
     
@@ -825,7 +844,7 @@ const App = () => {
     
         const updatedMessages: ChatMessage[] = [...currentChat.messages, userMessage, { role: 'model', text: '' }];
         const updatedChat = { ...currentChat, messages: updatedMessages };
-        
+    
         setChatsForClass(prev => prev.map(c => c.id === activeChatId ? updatedChat : c));
         await updateChat(updatedChat);
     
@@ -833,6 +852,8 @@ const App = () => {
         setInput('');
         const imageFile = image?.file;
         setImage(null);
+    
+        let finalModelMessage: ChatMessage | null = null; // Will only be set on a successful response
     
         try {
             const historyForApi = currentChat.messages.map(m => ({
@@ -855,7 +876,7 @@ const App = () => {
                     isGoogleSearchEnabled: useGoogleSearch,
                 }),
             });
-            
+    
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: `API error: ${response.statusText}` }));
                 throw new Error(errorData.error);
@@ -863,7 +884,8 @@ const App = () => {
     
             if (useGoogleSearch) {
                 const data = await response.json();
-                await updateLastMessage({ role: 'model', text: data.text, sources: data.candidates?.[0]?.groundingMetadata?.groundingChunks });
+                finalModelMessage = { role: 'model', text: data.text, sources: data.candidates?.[0]?.groundingMetadata?.groundingChunks };
+                await updateLastMessage(finalModelMessage);
             } else {
                 if (!response.body) throw new Error("Response body is empty.");
                 const reader = response.body.getReader();
@@ -875,20 +897,20 @@ const App = () => {
                     const { value, done } = await reader.read();
                     if (done) break;
                     fullResponse += decoder.decode(value, { stream: true });
-                    await updateLastMessage({ role: 'model', text: fullResponse }, false); // Don't save to DB on every chunk
                 }
-                await updateLastMessage({ role: 'model', text: fullResponse }, true); // Save final message to DB
+                finalModelMessage = { role: 'model', text: fullResponse };
+                await updateLastMessage(finalModelMessage, true); // Save final message to DB
             }
     
         } catch (error) {
             if ((error as Error).name === 'AbortError') {
-                 console.log('Stream stopped by user.');
-                 // Get the latest state from the DOM and save it
-                 const finalChatState = chatsForClass.find(c => c.id === activeChatId);
-                 if (finalChatState && finalChatState.messages.length > 0) {
-                     const lastMessage = finalChatState.messages[finalChatState.messages.length - 1];
-                     await updateLastMessage(lastMessage, true);
-                 }
+                console.log('Stream stopped by user.');
+                // Attempt to save the last known state from the stream if aborted.
+                const finalChatState = chatsForClass.find(c => c.id === activeChatId);
+                if (finalChatState && finalChatState.messages.length > 0) {
+                    const lastMessage = finalChatState.messages[finalChatState.messages.length - 1];
+                    await updateLastMessage(lastMessage, true);
+                }
             } else {
                 console.error("Error sending message:", error);
                 await updateLastMessage({ role: 'model', text: `Sorry, something went wrong. ${(error as Error).message}` });
@@ -896,12 +918,10 @@ const App = () => {
         } finally {
             setIsLoading(false);
             abortControllerRef.current = null;
-            if (currentChat.messages.length === 0 && selectedClass) { // Only title for the first message exchange
-                // Refetch chat state to get the latest messages for title generation
-                 const finalChatState = chatsForClass.find(c => c.id === activeChatId);
-                 if (finalChatState && finalChatState.messages.length >= 2) {
-                    generateTitleForChat(selectedClass, activeChatId, finalChatState.messages);
-                 }
+            // Only generate a title if it was the first message exchange and the AI response was successful.
+            if (currentChat.messages.length === 0 && selectedClass && activeChatId && finalModelMessage) {
+                const messagesForTitle: ChatMessage[] = [userMessage, finalModelMessage];
+                generateTitleForChat(selectedClass, activeChatId, messagesForTitle);
             }
         }
     };
@@ -1096,27 +1116,29 @@ const App = () => {
     };
     
     const handleAnswerSelect = (selectedIndex: number) => {
+        if (selectedAnswer !== null) return; // Prevent re-answering
         setSelectedAnswer(selectedIndex);
         const newAnswers = [...userAnswers];
         newAnswers[currentQuestionIndex] = selectedIndex;
         setUserAnswers(newAnswers);
-
-        setTimeout(() => {
-            if (currentQuestionIndex < quizQuestions.length - 1) {
-                setCurrentQuestionIndex(prev => prev + 1);
-                setSelectedAnswer(null);
-            } else {
-                let score = 0;
-                quizQuestions.forEach((q, i) => {
-                    if (q.correctAnswerIndex === newAnswers[i]) score++;
-                });
-                setQuizScore(score);
-                setQuizStage('results');
-                
-                const scoreMessage = `## Quiz Complete!\n\n**Topic: ${quizTopicForDisplay}**\n**Final score: ${score} out of ${quizQuestions.length}**`;
-                addNewMessage({ role: 'model', text: scoreMessage });
-            }
-        }, 2500);
+    };
+    
+    const handleNextQuestion = () => {
+        if (currentQuestionIndex < quizQuestions.length - 1) {
+            setCurrentQuestionIndex(prev => prev + 1);
+            setSelectedAnswer(null);
+        } else {
+            // This is the last question, so move to results
+            let score = 0;
+            quizQuestions.forEach((q, i) => {
+                if (q.correctAnswerIndex === userAnswers[i]) score++;
+            });
+            setQuizScore(score);
+            setQuizStage('results');
+            
+            const scoreMessage = `## Quiz Complete!\n\n**Topic: ${quizTopicForDisplay}**\n**Final score: ${score} out of ${quizQuestions.length}**`;
+            addNewMessage({ role: 'model', text: scoreMessage });
+        }
     };
 
     const handleFinishQuiz = () => {
@@ -1145,6 +1167,7 @@ const App = () => {
                         --gemini-gradient: linear-gradient(90deg, #F97721, #F2A93B, #88D7E4, #2D79C7);
                         --correct-color: #2e7d32; --incorrect-color: #c62828;
                         --modal-overlay-bg: rgba(240, 244, 249, 0.5);
+                        --modal-bg-frosted: rgba(255, 255, 255, 0.8);
                     }
                     [data-theme='dark'] {
                         --bg-primary: #121212; --bg-secondary: #1e1e1e; --bg-tertiary: #2a2a2a;
@@ -1153,10 +1176,13 @@ const App = () => {
                         --border-color: #333333;
                         --correct-color: #66bb6a; --incorrect-color: #ef5350;
                         --modal-overlay-bg: rgba(18, 18, 18, 0.5);
+                        --modal-bg-frosted: rgba(30, 30, 30, 0.8);
                     }
                     * { box-sizing: border-box; margin: 0; padding: 0; }
                     body { background-color: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); transition: background-color 0.3s, color 0.3s; overflow: hidden; }
                     .gemini-gradient-text { background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+                    .correct-text { color: var(--correct-color); }
+                    .incorrect-text { color: var(--incorrect-color); }
 
                     @keyframes fadeIn {
                         from { opacity: 0; transform: translateY(8px); }
@@ -1181,8 +1207,22 @@ const App = () => {
                         from { opacity: 0; transform: scale(0.95) translateY(10px); }
                         to { opacity: 1; transform: scale(1) translateY(0); }
                     }
-                    .modal-content, .quiz-dialog {
+                    .modal-container {
                         animation: modal-show 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+                    }
+                    
+                    @keyframes fadeInMessage {
+                        from {
+                            opacity: 0;
+                            transform: translateY(10px);
+                        }
+                        to {
+                            opacity: 1;
+                            transform: translateY(0);
+                        }
+                    }
+                    .animated-content {
+                        animation: fadeInMessage 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
                     }
 
                     /* === Initial Class Selector === */
@@ -1203,67 +1243,88 @@ const App = () => {
                     .chat-main { flex: 1; display: flex; flex-direction: column; position: relative; background-color: var(--bg-primary); transition: width 0.3s ease-in-out; }
                     
                     /* === Sidebar === */
-                    .sidebar-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
-                    .sidebar-header .logo-container { display: flex; justify-content: center; align-items: center; width: 48px; height: 48px; flex-shrink: 0; }
-                    .sidebar-header .logo-container svg { transition: transform 0.3s ease-out, filter 0.4s ease-out; }
+                    .sidebar-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+                    .sidebar-header .logo-container {
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        width: 48px;
+                        height: 48px;
+                        flex-shrink: 0;
+                        background: transparent;
+                        border: none;
+                        padding: 0;
+                        cursor: pointer;
+                        border-radius: 12px;
+                        transition: background-color 0.2s;
+                        color: var(--text-primary);
+                    }
+                    .sidebar-header .logo-container svg { transition: transform 0.3s ease-out; }
                     
                     .sidebar-btn { width: 100%; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-size: 1rem; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 10px; font-family: var(--font-heading); font-weight: 500; position: relative; z-index: 1; overflow: hidden; transition: all 0.25s ease-out; }
                     .sidebar-btn:disabled { background-color: var(--bg-tertiary); color: var(--text-secondary); cursor: not-allowed; opacity: 0.6; }
                     .sidebar-content { display: flex; flex-direction: column; gap: 12px; flex-grow: 1; overflow: hidden; }
                     .chat-history-container { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; margin-top: 16px; padding-right: 8px; }
                     .history-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 12px; cursor: pointer; transition: background-color 0.2s ease-out; gap: 8px; }
-                    .history-item.active { background-color: var(--accent-primary); color: var(--bg-primary); }
+                    
+                    .history-item.active {
+                        background-color: transparent;
+                        color: var(--text-primary);
+                        position: relative;
+                    }
+                    .history-item.active::before {
+                        content: '';
+                        position: absolute;
+                        inset: 0;
+                        border-radius: 12px; /* must be same as the element */
+                        padding: 1px; /* border width */
+                        background: var(--gemini-gradient);
+                        -webkit-mask: 
+                            linear-gradient(#fff 0 0) content-box, 
+                            linear-gradient(#fff 0 0);
+                        -webkit-mask-composite: xor;
+                                mask-composite: exclude;
+                        pointer-events: none;
+                    }
+
                     .history-item.pinned .history-pin-btn { color: var(--accent-primary); }
-                    .history-item.active.pinned .history-pin-btn { color: var(--bg-primary); }
+                    .history-item.active.pinned .history-pin-btn { color: var(--accent-primary); }
                     .history-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem; }
                     .history-item-controls { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
                     .history-action-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; opacity: 0; transition: all 0.2s ease-out; padding: 4px; border-radius: 50%; display: flex; }
                     .history-action-btn:hover { background-color: var(--bg-secondary); }
-                    .history-item.active .history-action-btn { color: var(--bg-primary); }
-                    .history-item.active .history-action-btn:hover { background-color: color-mix(in srgb, var(--bg-primary) 15%, transparent); }
+                    .history-item.active .history-action-btn { color: var(--text-secondary); }
+                    .history-item.active .history-action-btn:hover { background-color: color-mix(in srgb, var(--accent-primary) 10%, transparent); color: var(--text-primary); }
                     .history-item:hover .history-action-btn, .history-item.pinned .history-pin-btn { opacity: 1; }
                     
-                    .sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 16px; }
+                    /* Minimalist Scrollbar */
+                    .chat-history-container::-webkit-scrollbar { width: 4px; }
+                    .chat-history-container::-webkit-scrollbar-track { background: transparent; }
+                    .chat-history-container::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 20px; }
+                    .chat-history-container::-webkit-scrollbar-thumb:hover { background-color: var(--text-secondary); }
+
+                    .sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 16px; flex-shrink: 0; }
                     .user-info { display: flex; align-items: center; gap: 10px; padding: 12px; font-size: 1rem; color: var(--text-secondary); background-color: var(--bg-tertiary); border-radius: 12px; font-family: var(--font-heading); font-weight: 500; }
                     .sidebar.collapsed .user-info { justify-content: center; width: 56px; }
                     .sidebar.collapsed .user-info span { display: none; }
-                    .theme-toggle { display: flex; justify-content: space-between; align-items: center; padding: 8px; background-color: var(--bg-tertiary); border-radius: 999px; }
-                    .theme-toggle > span { text-transform: uppercase; font-size: 0.75rem; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px; padding-left: 12px; }
-                    .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
-                    .switch input { opacity: 0; width: 0; height: 0; }
-                    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--bg-tertiary); border: 1px solid var(--border-color); transition: .3s; border-radius: 22px; }
-                    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: var(--text-secondary); transition: .3s; border-radius: 50%; }
-                    input:checked + .slider { background-color: var(--accent-primary); border-color: var(--accent-primary); }
-                    [data-theme='dark'] input:checked + .slider:before { background-color: var(--bg-primary); }
-                    input:checked + .slider:before { transform: translateX(18px); }
+                    
+                    /* New Theme Toggle Styles */
+                    .theme-toggle-btn { background: none; border: none; padding: 0; cursor: pointer; }
+                    .toggle-track { width: 60px; height: 30px; border-radius: 15px; background-color: var(--bg-tertiary); border: 1px solid var(--border-color); position: relative; transition: background-color 0.3s ease-out; }
+                    .toggle-thumb { width: 26px; height: 26px; border-radius: 50%; background: #fff; position: absolute; top: 1px; left: 1px; display: flex; justify-content: center; align-items: center; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
+                    [data-theme='dark'] .toggle-thumb { background: #444; transform: translateX(30px); }
+                    .toggle-thumb svg { position: absolute; transition: opacity 0.2s ease-out, transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); color: var(--text-secondary); }
+                    .toggle-thumb svg:first-child { /* Sun */ opacity: 1; transform: rotate(0deg); }
+                    .toggle-thumb svg:last-child { /* Moon */ opacity: 0; transform: rotate(90deg); }
+                    [data-theme='dark'] .toggle-thumb svg:first-child { opacity: 0; transform: rotate(-90deg); }
+                    [data-theme='dark'] .toggle-thumb svg:last-child { opacity: 1; transform: rotate(0deg); }
 
                     @keyframes spinner { to { transform: rotate(360deg); } }
                     .title-loader { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--text-secondary); border-top-color: transparent; border-radius: 50%; animation: spinner 0.6s linear infinite; margin-left: 8px; vertical-align: middle; }
                     .history-item-title { display: flex; align-items: center; overflow: hidden; }
                     
-                    /* === Model Selector in Header === */
-                    .model-selector-container {
-                        flex-grow: 1;
-                        min-width: 150px;
-                    }
-                    .model-selector-container .modal-form-group {
-                        margin-bottom: 0;
-                    }
-                    .model-selector-container .custom-select-label {
-                        border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px;
-                        overflow: hidden; padding: 0; position: absolute; width: 1px;
-                    }
-                    .model-selector-container .custom-select-button {
-                        padding: 10px 12px; font-size: 1rem; height: 100%;
-                    }
-                    .model-selector-container .custom-select-options {
-                        width: 250px; /* Constrain width to fit within sidebar padding */
-                        right: 0;
-                        left: auto;
-                    }
-                    
                     /* === Sidebar Collapsed State & Animation === */
-                    .sidebar-header > div:not(.logo-container) {
+                    .sidebar-header > *:not(.logo-container) {
                         white-space: nowrap;
                     }
                     .sidebar-btn span {
@@ -1275,33 +1336,37 @@ const App = () => {
                     .sidebar.collapsed { width: 88px; padding-left: 0; padding-right: 0; }
                     .sidebar.collapsed .sidebar-header { justify-content: center; }
                     .sidebar.collapsed .sidebar-header .logo-container { margin-left: 0; }
-                    .sidebar.collapsed .sidebar-header > div:not(.logo-container) {
+                    .sidebar.collapsed .sidebar-header > *:not(.logo-container) {
                         display: none;
                     }
                     .sidebar.collapsed .sidebar-content,
                     .sidebar.collapsed .sidebar-footer { align-items: center; }
                     .sidebar.collapsed .sidebar-btn { justify-content: center; width: 56px; }
                     .sidebar.collapsed .sidebar-btn span { display: none; }
-                    .sidebar.collapsed .chat-history-container,
-                    .sidebar.collapsed .sidebar-content > hr,
-                    .sidebar.collapsed .theme-toggle { display: none; }
+                    .sidebar.collapsed .chat-history-container { display: none; }
+                    .sidebar.collapsed .sidebar-footer > .sidebar-btn--utility,
+                    .sidebar.collapsed .sidebar-footer > hr {
+                        display: none;
+                    }
                     .collapse-btn { margin-top: 8px; }
                     
                     /* === Futuristic Hover Effects (Desktop Only) === */
-                    .class-button::before, .sidebar-btn::before, .modal-btn.submit::before {
+                    .class-button::before, .sidebar-btn::before, .modal-btn.submit::before, .quiz-next-btn::before {
                          content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--gemini-gradient); z-index: -1; opacity: 0; transition: opacity 0.3s ease-out;
                     }
                     
                     @media (hover: hover) {
-                        .sidebar-header:hover svg { 
-                            transform: scale(1.1); 
-                            filter: drop-shadow(0 0 4px rgba(242, 169, 59, 0.4)) 
-                                    drop-shadow(0 0 8px rgba(249, 119, 33, 0.2));
+                        .sidebar-header .logo-container:hover {
+                            background-color: var(--bg-tertiary);
                         }
-                        .sidebar-header:hover .logo-paths { stroke: url(#gemini-gradient-svg); }
-                        .class-button:hover, .sidebar-btn:not(:disabled):hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
-                        [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover { color: #fff; }
-                        .class-button:hover::before, .sidebar-btn:not(:disabled):hover::before { opacity: 1; }
+                        .sidebar-header .logo-container:hover svg {
+                            transform: scale(1.1);
+                        }
+                        .theme-toggle-btn:hover .toggle-thumb { transform: scale(1.1); }
+                        [data-theme='dark'] .theme-toggle-btn:hover .toggle-thumb { transform: translateX(30px) scale(1.1); }
+                        .class-button:hover, .sidebar-btn:not(:disabled):hover, .quiz-next-btn:hover { color: #fff; border-color: transparent; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
+                        [data-theme='dark'] .class-button:hover, [data-theme='dark'] .sidebar-btn:not(:disabled):hover, [data-theme='dark'] .quiz-next-btn:hover { color: #fff; }
+                        .class-button:hover::before, .sidebar-btn:not(:disabled):hover::before, .quiz-next-btn:hover::before { opacity: 1; }
                         .history-item:hover { background-color: var(--bg-tertiary); }
                         .chat-message:hover .copy-btn { visibility: visible; opacity: 1; }
                         .modal-btn.submit:not(:disabled):hover { color: #fff; box-shadow: 0 -6px 20px -5px rgba(249, 119, 33, 0.7), 0 6px 20px -5px rgba(45, 121, 199, 0.7); }
@@ -1323,21 +1388,6 @@ const App = () => {
                     
                     .message-content { line-height: 1.6; flex-grow: 1; overflow: hidden; font-family: 'Google Sans', sans-serif; }
 
-                    @keyframes blink {
-                        50% { opacity: 0; }
-                    }
-                    .message-content.is-typing > div:first-of-type > p:last-of-type::after,
-                    .message-content.is-typing > div:first-of-type > ul:last-of-type > li:last-of-type::after,
-                    .message-content.is-typing > div:first-of-type > ol:last-of-type > li:last-of-type::after,
-                    .message-content.is-typing > div:first-of-type > pre:last-of-type::after {
-                        content: '▋';
-                        animation: blink 1s step-end infinite;
-                        display: inline-block;
-                        margin-left: 4px;
-                        color: var(--text-primary);
-                        vertical-align: baseline;
-                    }
-                    
                     .role-model .message-content {
                         font-size: 1rem;
                         font-weight: 400;
@@ -1412,15 +1462,71 @@ const App = () => {
                     .remove-image-btn { position: absolute; top: -8px; right: -8px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 12px; }
                     .input-options { display: flex; justify-content: space-between; align-items: center; }
                     .search-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
-                    .search-toggle .switch { transform: scale(0.8); }
                     .search-toggle.disabled { opacity: 0.5; cursor: not-allowed; }
                     
                     /* Scroll to Top button */
                     .scroll-to-top-btn { position: absolute; bottom: 24px; right: 40px; z-index: 10; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 50%; width: 44px; height: 44px; display: flex; justify-content: center; align-items: center; cursor: pointer; box-shadow: var(--shadow); opacity: 0; transform: translateY(15px); transition: opacity 0.3s ease-out, transform 0.3s ease-out; pointer-events: none; }
                     .scroll-to-top-btn.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
 
-                    /* === Quiz Modal === */
+                    /* === Search Toggle Switch === */
+                    .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+                    .switch input { opacity: 0; width: 0; height: 0; }
+                    .slider {
+                        position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+                        background-color: transparent;
+                        transition: .4s;
+                        border-radius: 22px;
+                        border: 1px solid var(--border-color);
+                    }
+                    .slider:before {
+                        position: absolute; content: "";
+                        height: 18px; width: 18px; left: 1px; bottom: 1px;
+                        background-color: #121212; /* Black thumb in light mode */
+                        transition: .4s; border-radius: 50%;
+                    }
+                    [data-theme='dark'] .slider:before {
+                        background-color: #ffffff; /* White thumb in dark mode */
+                    }
+                    input:checked + .slider {
+                        background-image: none;
+                        background-color: transparent;
+                        border-color: var(--border-color);
+                    }
+                    input:focus + .slider {
+                        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 30%, transparent);
+                    }
+                    input:checked + .slider:before {
+                        transform: translateX(18px);
+                    }
+                    .search-toggle.disabled .slider {
+                        cursor: not-allowed; opacity: 0.6;
+                    }
+
+                    /* === Quiz Modal & Dialog Styles === */
                     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--modal-overlay-bg); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 200; display: flex; justify-content: center; align-items: center; animation: fadeIn 0.2s ease-out; }
+                    
+                    .modal-container {
+                        padding: 2px;
+                        background: var(--gemini-gradient);
+                        border-radius: 24px;
+                        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+                        max-width: 550px;
+                        width: 90%;
+                    }
+
+                    .modal-content {
+                        background: var(--modal-bg-frosted);
+                        backdrop-filter: blur(12px);
+                        -webkit-backdrop-filter: blur(12px);
+                        border-radius: 22px;
+                        width: 100%;
+                    }
+                    
+                    .modal-content.quiz-setup-modal, .modal-content.quiz-dialog {
+                        background: var(--bg-primary);
+                    }
+
+                    .quiz-setup-modal { padding: 32px; }
                     .quiz-setup-modal .modal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
                     .quiz-setup-modal .modal-header-icon { color: var(--accent-primary); }
                     .quiz-setup-modal .modal-header h3 { font-family: var(--font-heading); font-size: 1.8rem; font-weight: 700; }
@@ -1454,13 +1560,13 @@ const App = () => {
                     .custom-select-options { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 12px; padding: 8px; z-index: 10; max-height: 200px; overflow-y: auto; box-shadow: var(--shadow); list-style: none; }
                     .custom-select-option { padding: 12px 14px; border-radius: 8px; cursor: pointer; transition: background-color 0.2s; }
                     .custom-select-option.active { background-color: var(--bg-tertiary); }
-                    .custom-select-option[aria-selected="true"] .option-label { font-weight: 700; color: var(--accent-primary); }
+                    .custom-select-option[aria-selected="true"] .option-label { color: var(--accent-primary); }
                     .option-content { display: flex; align-items: center; gap: 12px; }
                     .option-content svg { flex-shrink: 0; color: var(--text-secondary); transition: color 0.2s; }
                     .custom-select-option.active .option-content svg, .custom-select-option[aria-selected="true"] .option-content svg { color: var(--accent-primary); }
                     .option-text-content { display: flex; flex-direction: column; gap: 2px; }
                     .option-label-line { display: flex; justify-content: space-between; align-items: center; }
-                    .option-label { font-size: 1rem; font-weight: 700; color: var(--text-primary); }
+                    .option-label { font-size: 1rem; font-weight: 400; color: var(--text-primary); }
                     .option-description { 
                         font-size: 0.8rem; 
                         color: var(--text-secondary); 
@@ -1511,27 +1617,48 @@ const App = () => {
                     .quiz-option-btn.correct { background-color: var(--correct-color); color: white; border-color: var(--correct-color); }
                     .quiz-option-btn.incorrect { background-color: var(--incorrect-color); color: white; border-color: var(--incorrect-color); }
                     .quiz-option-btn:disabled { cursor: not-allowed; opacity: 0.8; }
-                    .quiz-explanation { margin-left: 48px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 0.9rem; animation: fadeIn 0.3s ease-out; }
+                    .quiz-feedback-section { margin-left: 48px; margin-top: 16px; animation: fadeIn 0.4s ease-out; }
+                    .quiz-explanation { padding: 12px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.9rem; }
+                    .quiz-navigation { margin-top: 16px; display: flex; justify-content: flex-end; }
+                    .quiz-next-btn {
+                        padding: 12px 24px; border: none; border-radius: 12px; cursor: pointer;
+                        font-family: var(--font-heading); font-weight: 500; font-size: 1rem;
+                        background: var(--accent-primary); color: var(--bg-primary);
+                        position: relative; z-index: 1; overflow: hidden;
+                        transition: all 0.25s ease-out;
+                        display: flex; align-items: center; gap: 8px;
+                    }
                     
                     /* Quiz Results */
-                    .quiz-results-view { flex-grow: 1; display: flex; flex-direction: column; align-items: center; text-align: center; animation: fadeIn 0.5s ease-out; }
-                    .results-title { font-family: var(--font-heading); font-size: 2.5rem; margin-bottom: 24px; }
-                    .score-chart { position: relative; width: 120px; height: 120px; margin-bottom: 24px; }
+                    .quiz-results-view { flex-grow: 1; display: flex; flex-direction: column; align-items: center; text-align: center; animation: fadeIn 0.5s ease-out; padding-top: 16px; }
+                    .results-title { font-family: var(--font-heading); font-size: 2.5rem; margin-bottom: 24px; font-weight: 700; }
+                    .score-summary-grid {
+                        display: grid; grid-template-columns: repeat(3, 1fr);
+                        gap: 16px; width: 100%; margin-bottom: 24px;
+                    }
+                    .summary-stat {
+                        background-color: var(--bg-secondary); border-radius: 12px;
+                        padding: 16px; border: 1px solid var(--border-color);
+                    }
+                    .stat-value { display: block; font-size: 2rem; font-weight: 700; font-family: var(--font-heading); }
+                    .stat-label { display: block; font-size: 0.9rem; color: var(--text-secondary); }
+
+                    .score-chart { position: relative; width: 120px; height: 120px; margin-bottom: 16px; }
                     .score-chart svg { transform: rotate(-90deg); }
                     .score-chart-track { fill: none; stroke: var(--bg-tertiary); stroke-width: 10; }
                     .score-chart-progress { fill: none; stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease-out; }
-                    .score-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family: var(--font-heading); }
+                    .score-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family: var(--font-heading); display: flex; flex-direction: column; line-height: 1.1; }
                     .score-text strong { font-size: 2rem; color: var(--text-primary); }
-                    .score-text span { font-size: 1rem; color: var(--text-secondary); }
-                    .score-summary { font-size: 1.1rem; margin-bottom: 32px; }
-                    .results-actions { display: flex; gap: 16px; }
+                    .score-text span { font-size: 0.9rem; color: var(--text-secondary); }
+                    .score-summary { font-size: 1.1rem; margin-bottom: 32px; max-width: 90%;}
+                    .results-actions { display: flex; gap: 16px; margin-top: 32px; }
                     .results-btn { padding: 12px 24px; border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; font-family: var(--font-heading); font-weight: 500; font-size: 1rem; transition: all 0.2s ease-out; }
                     .results-btn.finish { background: var(--bg-tertiary); color: var(--text-primary); }
                     .results-btn.try-again { background: var(--accent-primary); color: var(--bg-primary); border-color: var(--accent-primary); }
 
                     /* Performance Report in Quiz Results */
                     .performance-report {
-                        margin-top: 32px;
+                        margin-top: 16px;
                         width: 100%;
                         text-align: left;
                         border-top: 1px solid var(--border-color);
@@ -1541,11 +1668,6 @@ const App = () => {
                         font-family: var(--font-heading);
                         font-size: 1.5rem;
                         text-align: center;
-                        margin-bottom: 8px;
-                    }
-                    .report-intro {
-                        text-align: center;
-                        color: var(--text-secondary);
                         margin-bottom: 24px;
                     }
                     .report-item {
@@ -1612,7 +1734,7 @@ const App = () => {
                         .title-main { font-size: 3.5rem; }
                         .scroll-to-top-btn { right: 20px; bottom: 20px; }
                         .quiz-options { grid-template-columns: 1fr; margin-left: 0; }
-                        .quiz-explanation { margin-left: 0; }
+                        .quiz-explanation, .quiz-feedback-section { margin-left: 0; }
                         .role-user .message-content { font-size: 1rem; }
                         .role-model .message-content { font-size: 0.95rem; }
                     }
@@ -1632,37 +1754,41 @@ const App = () => {
 
                     {isQuizModeActive && (
                         <div className="modal-overlay">
-                            <div className="modal-content quiz-dialog">
-                                <div className="quiz-header">
-                                    <h3>{quizTopicForDisplay || 'Quiz'}</h3>
-                                    <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="Finish Quiz">
-                                        <Icon path="M18 6L6 18M6 6l12 12" />
-                                    </button>
-                                </div>
-                                <div className="quiz-content">
-                                    {quizStage === 'question' && quizQuestions.length > 0 && (
-                                        <>
-                                            <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
-                                            <QuizView 
-                                                question={quizQuestions[currentQuestionIndex]}
-                                                onAnswerSelect={handleAnswerSelect}
-                                                selectedAnswer={selectedAnswer}
+                            <div className="modal-container" style={{maxWidth: '700px'}}>
+                                <div className="modal-content quiz-dialog">
+                                    <div className="quiz-header">
+                                        <h3>{quizTopicForDisplay || 'Quiz'}</h3>
+                                        <button onClick={handleFinishQuiz} className="quiz-close-btn" aria-label="Finish Quiz">
+                                            <Icon path="M18 6L6 18M6 6l12 12" />
+                                        </button>
+                                    </div>
+                                    <div className="quiz-content">
+                                        {quizStage === 'question' && quizQuestions.length > 0 && (
+                                            <>
+                                                <QuizProgressBar current={currentQuestionIndex + 1} total={quizQuestions.length} />
+                                                <QuizView 
+                                                    question={quizQuestions[currentQuestionIndex]}
+                                                    onAnswerSelect={handleAnswerSelect}
+                                                    selectedAnswer={selectedAnswer}
+                                                    onNextQuestion={handleNextQuestion}
+                                                    isLastQuestion={currentQuestionIndex === quizQuestions.length - 1}
+                                                />
+                                            </>
+                                        )}
+                                        {quizStage === 'results' && (
+                                            <QuizResults 
+                                                score={quizScore}
+                                                total={quizQuestions.length}
+                                                onTryAgain={() => { 
+                                                    handleFinishQuiz(); 
+                                                    setShowQuizModal(true); 
+                                                }}
+                                                onFinish={handleFinishQuiz}
+                                                questions={quizQuestions}
+                                                userAnswers={userAnswers}
                                             />
-                                        </>
-                                    )}
-                                    {quizStage === 'results' && (
-                                        <QuizResults 
-                                            score={quizScore}
-                                            total={quizQuestions.length}
-                                            onTryAgain={() => { 
-                                                handleFinishQuiz(); 
-                                                setShowQuizModal(true); 
-                                            }}
-                                            onFinish={handleFinishQuiz}
-                                            questions={quizQuestions}
-                                            userAnswers={userAnswers}
-                                        />
-                                    )}
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1671,16 +1797,21 @@ const App = () => {
 
                     <div className={`sidebar ${isSidebarOpen ? 'open' : ''} ${isSidebarCollapsed ? 'collapsed' : ''}`}>
                         <div className="sidebar-header">
-                            <div className="logo-container"><BHSLogo size={40} /></div>
-                            <div className="model-selector-container">
-                            <CustomSelect
-                                    id="model-selector"
-                                    label="Select AI Model"
-                                    options={modelOptions}
-                                    value={selectedModel}
-                                    onChange={(value) => setSelectedModel(value as string)}
-                            />
-                            </div>
+                            <button className="logo-container" onClick={() => { setSelectedClass(null); setSidebarOpen(false); }} aria-label="Go to Class Selection">
+                                <BHSLogo size={40} />
+                            </button>
+                            <button 
+                                className="theme-toggle-btn" 
+                                onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+                                aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+                            >
+                                <div className="toggle-track">
+                                    <div className="toggle-thumb">
+                                        <Icon path="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M12 7a5 5 0 100 10 5 5 0 000-10z" size={16} /> 
+                                        <Icon path="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" size={16} />
+                                    </div>
+                                </div>
+                            </button>
                         </div>
                         <div className="sidebar-content">
                             <button className="sidebar-btn" onClick={() => handleNewChat()} disabled={!selectedClass}>
@@ -1709,7 +1840,10 @@ const App = () => {
                                     </div>
                                 ))}
                             </div>
-                            <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '16px 0'}}/>
+                        </div>
+
+                        <div className="sidebar-footer">
+                             <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '0 0 16px 0'}}/>
                             <button className="sidebar-btn sidebar-btn--utility" onClick={() => setShowQuizModal(true)} disabled={!selectedClass || isLoading}>
                                 <Icon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" size={16} /> <span>Start Quiz</span>
                             </button>
@@ -1717,18 +1851,8 @@ const App = () => {
                                 <Icon path="M3 6h18M3 12h18M3 18h18" size={16} /> <span>Summarize Chat</span>
                             </button>
                             <button className="sidebar-btn sidebar-btn--utility" onClick={() => { setSelectedClass(null); setSidebarOpen(false); }} disabled={!selectedClass}>
-                            <Icon path="M18 16.5V21a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2h4.5M12.5 2.5L21.5 11.5m-5-9l9 9" size={16} /> <span>Change Class</span>
+                            <Icon path="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" size={16} /> <span>Change Class</span>
                             </button>
-                        </div>
-
-                        <div className="sidebar-footer">
-                            <div className="theme-toggle">
-                                <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
-                                <label className="switch">
-                                    <input type="checkbox" checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
-                                    <span className="slider"></span>
-                                </label>
-                            </div>
                             <button 
                                 className="sidebar-btn collapse-btn"
                                 onClick={() => setSidebarCollapsed(prev => !prev)}
@@ -1758,7 +1882,7 @@ const App = () => {
                                 <div key="chat" className="view-wrapper">
                                     {currentMessages.length === 0 && !isLoading ? (
                                         <ChatWelcomeScreen 
-                                            suggestions={promptSuggestions[selectedClass] || []} 
+                                            suggestions={randomizedSuggestions} 
                                             onSendMessage={handleSendMessage} 
                                         />
                                     ) : (
@@ -1799,10 +1923,10 @@ const App = () => {
                                             </div>
                                         )}
                                         <label className={`search-toggle ${image ? 'disabled' : ''}`} title={image ? "Search is disabled when an image is attached" : "Toggle web search"}>
-                                            <label className="switch">
+                                            <div className="switch">
                                                 <input type="checkbox" checked={isGoogleSearchEnabled} onChange={() => setGoogleSearchEnabled(p => !p)} disabled={!!image} />
                                                 <span className="slider"></span>
-                                            </label>
+                                            </div>
                                             <span>Search the web</span>
                                         </label>
                                 </div>

@@ -15,7 +15,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return res.status(400).json({ error: 'Conversation history is required.' });
         }
 
-        const prompt = `Based on the following conversation, create a very short, concise title (maximum 5 words, e.g., "Solar System Explained"). Do not use quotes in the title.\n\n---\n${conversation}\n---`;
+        const prompt = `You are an expert in creating concise, descriptive titles. Based on the following conversation, generate a short title that captures the main topic.
+
+**Guidelines:**
+- The title must be a maximum of 5 words.
+- Use title case (e.g., "The Life Cycle of a Star").
+- Do not use quotation marks in the output.
+- The title should be neutral and informative.
+
+**Conversation:**
+---
+${conversation}
+---
+
+**Title:**`;
         
         const response = await ai.models.generateContent({ 
             model: 'gemini-2.5-flash', 
